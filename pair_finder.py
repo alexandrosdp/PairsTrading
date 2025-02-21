@@ -1,8 +1,14 @@
 import pandas as pd
 import numpy as np
 import statsmodels.api as sm
-from statsmodels.tsa.stattools import coint
+from statsmodels.tsa.stattools import coint, adfuller
+
 import matplotlib.pyplot as plt
+from statsmodels.graphics.tsaplots import plot_acf
+from statsmodels.stats.diagnostic import acorr_ljungbox
+
+from cointegration_testing import coint_test_modified
+
 
 # --------------------------
 # 2. Pre-Screening & Cointegration Testing
@@ -34,6 +40,54 @@ def filter_high_correlation_pairs(prices, threshold=0.8):
                 pairs.append((symbols[i], symbols[j], corr_val))
     return corr_matrix, pairs
 
+def analyze_adf_residuals_from_adfuller(y, maxlag=None, autolag='AIC', regression='c', lb_lags=10, plot=True):
+    """
+    Analyze the residuals produced by the ADF regression using adfuller, ensuring that the 
+    same parameters (maxlag, autolag, regression) are used as in the cointegration test (coint).
+    
+    The function runs the ADF test on the series `y` using:
+        ts.adfuller(y, maxlag=maxlag, autolag=autolag, regression=regression, regresults=True)
+    and then extracts the regression results (which include the residuals). It then
+    analyzes the residuals for autocorrelation using an ACF plot, the Durbin-Watson statistic, 
+    and the Ljung-Box test.
+    
+    Parameters:
+        y (pd.Series): The input time series.
+        maxlag (int, optional): Maximum number of lags to include. Default is None.
+        autolag (str, optional): Method for selecting the lag length (e.g., 'AIC'). Default is 'AIC'.
+        regression (str, optional): Type of regression/trend to include (e.g., 'c' for constant). Default is 'c'.
+        lb_lags (int, optional): Number of lags to use in the Ljung-Box test. Default is 10.
+        plot (bool, optional): Whether to display an ACF plot of the residuals. Default is True.
+    
+    Returns:
+        model: The regression results object from adfuller.
+        residuals (pd.Series): Residuals of the test regression.
+        dw_stat (float): The Durbin-Watson statistic for the residuals.
+        lb_test (pd.DataFrame): Results of the Ljung-Box test.
+    """
+    # Run adfuller with regresults=True so that the underlying regression results are returned.
+    adf_result = adfuller(y, maxlag=maxlag, autolag=autolag, regression=regression, regresults=True)
+    # The adfuller result tuple is:
+    # (test_statistic, p-value, usedlag, nobs, critical_values, icbest, regresults)
+    reg_results = adf_result[6]  # This is the regression results object.
+    residuals = reg_results.resid
+    
+    # Plot the Autocorrelation Function (ACF) of the residuals if requested.
+    if plot:
+        plt.figure(figsize=(10, 4))
+        plot_acf(residuals, lags=20)
+        plt.title("ACF of ADF Regression Residuals")
+        plt.show()
+    
+    # Compute the Durbin-Watson statistic to quantify autocorrelation in the residuals.
+    dw_stat = sm.stats.stattools.durbin_watson(residuals)
+    
+    # Perform the Ljung-Box test on the residuals.
+    lb_test = acorr_ljungbox(residuals, lags=[lb_lags], return_df=True)
+    
+    return reg_results, residuals, dw_stat, lb_test
+
+
 
 
 def find_cointegrated_pairs(prices, significance=0.05):
@@ -61,6 +115,7 @@ def find_cointegrated_pairs(prices, significance=0.05):
             pvalue_matrix[i, j] = pvalue
             if pvalue < significance:
                 pairs.append((keys[i], keys[j], pvalue))
+
     return pairs, pvalue_matrix
 
 
@@ -86,6 +141,8 @@ def compute_spread(S1, S2):
     beta = model.params[1]
     spread = S1 - beta * S2
     return spread, beta
+
+
 
 def backtest_pair(spread, entry_threshold=1.0, exit_threshold=0.0):
     """
