@@ -1711,6 +1711,7 @@ def coint_test_modified(
     maxlag=None,
     autolag: str | None = "aic",
     return_results=None,
+    return_residuals=True
 ):
     """
     Test for no-cointegration of a univariate equation.
@@ -1819,8 +1820,8 @@ def coint_test_modified(
 
     if res_co.rsquared < 1 - 100 * SQRTEPS:
         res_adf = adfuller(
-            res_co.resid, maxlag=maxlag, autolag=autolag, regression="n"
-        )
+            res_co.resid, maxlag=maxlag, autolag=autolag, regression="n", regresults=True
+        ) #resadf contains multiple valies for the adf test
     else:
         warnings.warn(
             "y0 and y1 are (almost) perfectly colinear."
@@ -1835,12 +1836,24 @@ def coint_test_modified(
     if trend == "n":
         crit = [np.nan] * 3  # 2010 critical values not available
     else:
-        crit = mackinnoncrit(N=k_vars, regression=trend, nobs=nobs - 1)
+        crit = mackinnoncrit(N=k_vars, regression=trend, nobs=nobs - 1) #MacKinnon's approximations of the distribution of the ADF test statistic when used in cointegration testing
         #  nobs - 1, the -1 is to match egranger in Stata, I do not know why.
         #  TODO: check nobs or df = nobs - k
 
-    pval_asy = mackinnonp(res_adf[0], regression=trend, N=k_vars)
-    return res_adf[0], pval_asy, crit
+    pval_asy = mackinnonp(res_adf[0], regression=trend, N=k_vars) #The p-value for the test statistic using MacKinnon's 2010 approximate distribution
+
+    # #Extract the test statistic from the adf test
+    # adf_test_stat = res_adf[0]
+
+    #Extract the residuals from the adf test
+    residuals_adf = res_adf[3].resols.resid
+
+    if return_residuals == True:
+        return pval_asy, residuals_adf
+    else:
+        return pval_asy
+
+    
 
 
 def _safe_arma_fit(y, order, model_kw, trend, fit_kw, start_params=None):
