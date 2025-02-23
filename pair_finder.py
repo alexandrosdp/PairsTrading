@@ -69,9 +69,6 @@ def find_cointegrated_pairs(prices,high_corr_pairs, significance=0.05):
         S2 = prices[sym2]
         pvalue, res_adf = coint_test_modified(S1, S2)
 
-        print("THESE ARE THE RESIDUALS")
-        print(res_adf)
-
         #Add p value to matrix
         i = keys.get_loc(sym1)
         j = keys.get_loc(sym2)
