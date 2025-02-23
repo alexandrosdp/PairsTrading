@@ -42,6 +42,8 @@ def fetch_data(symbol, timeframe='1d', since=None, limit=365):
     data.set_index('timestamp', inplace=True)
     return data
 
+
+
 def get_aligned_data(symbols, timeframe='1d', since=None, limit=365):
     """
     Fetch and align closing price data for a list of trading pair symbols.
@@ -57,6 +59,7 @@ def get_aligned_data(symbols, timeframe='1d', since=None, limit=365):
         pd.DataFrame: DataFrame where each column represents the closing prices for a symbol, 
                       aligned on common timestamps (inner join). Returns an empty DataFrame if no data is fetched.
     """
+
     price_dfs = {}
     for sym in symbols:
         df = fetch_data(sym, timeframe, since, limit)
@@ -69,6 +72,36 @@ def get_aligned_data(symbols, timeframe='1d', since=None, limit=365):
     
     return prices
 
+def get_data_by_category(categories_dict, timeframe='1d', since=None, limit=365):
+    """
+    Fetch and align data for each category in categories_dict.
+    
+    Parameters:
+        categories_dict (dict): e.g. {'Payment': ['BTC/USDT','LTC/USDT'], 'Layer1': ['ETH/USDT', ...], ...}
+        timeframe (str): e.g. '1d', '4h'
+        since (int): optional 'since' in ms
+        limit (int): how many data points to fetch
+        
+    Returns:
+        dict of {category_name: DataFrame} where each DataFrame has aligned closing prices 
+        for all symbols in that category.
+    """
+    category_data = {}
+    
+    for category_name, symbols in categories_dict.items():
+        print(f"Fetching data for category: {category_name} -> {symbols}")
+        
+        # Use your existing get_aligned_data to fetch and merge
+        df_prices = get_aligned_data(symbols, timeframe, since, limit)
+        
+        # Only store if we have non-empty data
+        if not df_prices.empty:
+            category_data[category_name] = df_prices
+        else:
+            print(f"No data fetched for {category_name}, skipping.")
+    
+    return category_data
+
 
 # --------------------------
 # 4. Main Execution: Data Gathering, Pair Screening, and Backtesting
@@ -76,17 +109,34 @@ def get_aligned_data(symbols, timeframe='1d', since=None, limit=365):
 
 if __name__ == "__main__":
     # Define a list of symbols; adjust or extend as needed.
-    symbols = ["BTC/USDT", "ETH/USDT", "XRP/USDT", "LTC/USDT", "BCH/USDT"]
+    # symbols = ["BTC/USDT", "ETH/USDT", "XRP/USDT", "LTC/USDT", "BCH/USDT"]
     
-    # Get aligned historical price data (last 365 days)
-    print("Fetching and aligning data...")
-    prices = get_aligned_data(symbols, timeframe='1d', limit=365)
-    if prices.empty:
-        print("No data fetched. Please check your API connection or symbols.")
-        exit()
-    else:
-        prices.to_csv("data/prices_data.csv")
+    # # Get aligned historical price data (last 365 days)
+    # print("Fetching and aligning data...")
+    # prices = get_aligned_data(symbols, timeframe='1d', limit=365)
+    # if prices.empty:
+    #     print("No data fetched. Please check your API connection or symbols.")
+    #     exit()
+    # else:
+    #     prices.to_csv("data/prices_data.csv")
 
+    categories = {
+    'Payment':  ['BTC/USDT','LTC/USDT','BCH/USDT'],
+    'Layer1':   ['ETH/USDT','ADA/USDT','SOL/USDT'],
+    'DeFi':     ['UNI/USDT','AAVE/USDT','COMP/USDT'],
+    # etc.
+}
+
+# Now fetch data category-by-category
+category_dataframes = get_data_by_category(categories, timeframe='1d', limit=365)
+
+# category_dataframes is a dict: 
+# {
+#   'Payment':   DataFrame with columns ['BTC/USDT','LTC/USDT','BCH/USDT'],
+#   'Layer1':    DataFrame with columns ['ETH/USDT','ADA/USDT','SOL/USDT'],
+#   'DeFi':      DataFrame with columns ['UNI/USDT','AAVE/USDT','COMP/USDT'],
+#   ...
+# }
     
     
 # --------------------------
@@ -112,84 +162,3 @@ if __name__ == "__main__":
 # --------------------------
 
 
-
-# -----------------------------------------------------------------------------
-# NOTES ON THE ADFULLER FUNCTION
-# -----------------------------------------------------------------------------
-#
-# The adfuller function is used to test whether a time series has a unit root,
-# i.e., whether it is non-stationary.
-#
-# Under the hood, adfuller performs the following steps:
-#
-# 1. Data Validation & Preparation:
-#    - Checks the input series (y) for sufficient length and handles missing values.
-#
-# 2. Differencing:
-#    - Computes the first difference: Δy_t = y_t - y_(t-1).
-#
-# 3. Model Specification:
-#    - Sets up the regression model:
-#         Δy_t = α + γ * y_(t-1) + Σ (δ_i * Δy_(t-i)) + ε_t
-#      where:
-#         α is the constant (if included),
-#         γ is the coefficient for the lagged level (y_(t-1)),
-#         δ_i are coefficients for the lagged differences (i = 1, 2, ..., p).
-#
-# 4. Lag Selection:
-#    - Determines the number of lagged difference terms to include.
-#      If autolag is enabled (e.g., 'AIC'), it selects the lag order that minimizes
-#      an information criterion. Otherwise, it uses the provided maxlag.
-#
-# 5. OLS Regression:
-#    - Performs an Ordinary Least Squares (OLS) regression on the model to estimate
-#      the coefficients.
-#
-# 6. Extraction of Test Statistic:
-#    - Extracts the t-statistic for the coefficient γ (on y_(t-1)).
-#      Under the null hypothesis (γ = 0), the series has a unit root.
-#
-# 7. Statistical Inference:
-#    - Computes the p-value using the distribution of the test statistic under the null.
-#    - Provides critical values at common significance levels (e.g., 1%, 5%, 10%).
-#
-# 8. Return:
-#    - Returns a tuple containing:
-#         (test statistic, p-value, number of lags used, number of observations,
-#          dictionary of critical values, maximized information criterion if applicable)
-#
-# Example usage:
-# result = ts.adfuller(y, maxlag=None, autolag='AIC')
-
-
-# -----------------------------------------------------------------------------
-# NOTES ON THE CINT FUNCTION (Engle-Granger Cointegration Test)
-# -----------------------------------------------------------------------------
-#
-# The coint function tests for cointegration between two time series. The process
-# is known as the Engle-Granger two-step method.
-#
-# Under the hood, coint performs the following steps:
-#
-# 1. Regression (Long-Run Relationship):
-#    - It runs an OLS regression between the two series, typically of the form:
-#         y_t = α + β * x_t + ε_t
-#
-# 2. Residual Extraction:
-#    - Calculates the residuals (ε_t) from the regression.
-#      These residuals represent the spread between the two series.
-#
-# 3. Stationarity Testing:
-#    - Applies the Augmented Dickey-Fuller (ADF) test on the residuals.
-#      The ADF test checks if the residuals are stationary.
-#
-# 4. Interpretation:
-#    - If the residuals are stationary (i.e., the ADF test rejects the null of a unit root),
-#      the two series are cointegrated, meaning they share a long-run equilibrium relationship.
-#
-# 5. Return:
-#    - Returns a tuple containing:
-#         (ADF test statistic for the residuals, p-value, and additional diagnostic values)
-#
-# Example usage:
-# score, pvalue, _ = ts.coint(series1, series2)

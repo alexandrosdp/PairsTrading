@@ -1820,8 +1820,8 @@ def coint_test_modified(
 
     if res_co.rsquared < 1 - 100 * SQRTEPS:
         res_adf = adfuller(
-            res_co.resid, maxlag=maxlag, autolag=autolag, regression="n", regresults=True
-        ) #resadf contains multiple valies for the adf test
+            res_co.resid, maxlag=maxlag, autolag=autolag, regression="n", regresults=True 
+        ) #resadf contains multiple values for the adf test. regression = "n" means no constant or trend
     else:
         warnings.warn(
             "y0 and y1 are (almost) perfectly colinear."
@@ -2764,3 +2764,85 @@ class ZivotAndrewsUnitRoot:
 
 zivot_andrews = ZivotAndrewsUnitRoot()
 zivot_andrews.__doc__ = zivot_andrews.run.__doc__
+
+
+# -----------------------------------------------------------------------------
+# NOTES ON THE ADFULLER FUNCTION
+# -----------------------------------------------------------------------------
+#
+# The adfuller function is used to test whether a time series has a unit root,
+# i.e., whether it is non-stationary.
+#
+# Under the hood, adfuller performs the following steps:
+#
+# 1. Data Validation & Preparation:
+#    - Checks the input series (y) for sufficient length and handles missing values.
+#
+# 2. Differencing:
+#    - Computes the first difference: Δy_t = y_t - y_(t-1).
+#
+# 3. Model Specification:
+#    - Sets up the regression model:
+#         Δy_t = α + γ * y_(t-1) + Σ (δ_i * Δy_(t-i)) + ε_t
+#      where:
+#         α is the constant (if included),
+#         γ is the coefficient for the lagged level (y_(t-1)),
+#         δ_i are coefficients for the lagged differences (i = 1, 2, ..., p).
+#
+# 4. Lag Selection:
+#    - Determines the number of lagged difference terms to include.
+#      If autolag is enabled (e.g., 'AIC'), it selects the lag order that minimizes
+#      an information criterion. Otherwise, it uses the provided maxlag.
+#
+# 5. OLS Regression:
+#    - Performs an Ordinary Least Squares (OLS) regression on the model to estimate
+#      the coefficients.
+#
+# 6. Extraction of Test Statistic:
+#    - Extracts the t-statistic for the coefficient γ (on y_(t-1)).
+#      Under the null hypothesis (γ = 0), the series has a unit root.
+#
+# 7. Statistical Inference:
+#    - Computes the p-value using the distribution of the test statistic under the null.
+#    - Provides critical values at common significance levels (e.g., 1%, 5%, 10%).
+#
+# 8. Return:
+#    - Returns a tuple containing:
+#         (test statistic, p-value, number of lags used, number of observations,
+#          dictionary of critical values, maximized information criterion if applicable)
+#
+# Example usage:
+# result = ts.adfuller(y, maxlag=None, autolag='AIC')
+
+
+# -----------------------------------------------------------------------------
+# NOTES ON THE CINT FUNCTION (Engle-Granger Cointegration Test)
+# -----------------------------------------------------------------------------
+#
+# The coint function tests for cointegration between two time series. The process
+# is known as the Engle-Granger two-step method.
+#
+# Under the hood, coint performs the following steps:
+#
+# 1. Regression (Long-Run Relationship):
+#    - It runs an OLS regression between the two series, typically of the form:
+#         y_t = α + β * x_t + ε_t
+#
+# 2. Residual Extraction:
+#    - Calculates the residuals (ε_t) from the regression.
+#      These residuals represent the spread between the two series.
+#
+# 3. Stationarity Testing:
+#    - Applies the Augmented Dickey-Fuller (ADF) test on the residuals.
+#      The ADF test checks if the residuals are stationary.
+#
+# 4. Interpretation:
+#    - If the residuals are stationary (i.e., the ADF test rejects the null of a unit root),
+#      the two series are cointegrated, meaning they share a long-run equilibrium relationship.
+#
+# 5. Return:
+#    - Returns a tuple containing:
+#         (ADF test statistic for the residuals, p-value, and additional diagnostic values)
+#
+# Example usage:
+# score, pvalue, _ = ts.coint(series1, series2)

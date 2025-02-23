@@ -18,6 +18,25 @@ from cointegration_testing import coint_test_modified
 #TODO: Add community detection
 
 
+def create_category_dfs(prices, categories):
+    """
+    Create a dictionary of DataFrames, where each DataFrame contains the closing prices of assets in a given category.
+    
+    Parameters:
+        prices (pd.DataFrame): DataFrame where each column is a time series of closing prices for a cryptocurrency.
+        categories (dict): Dictionary mapping asset symbols to their corresponding categories.
+    
+    Returns:
+        dict: Dictionary of DataFrames, where each key is a category and each value is a DataFrame of closing prices.
+    """
+    category_dfs = {}
+    for category in set(categories.values()):
+        category_assets = [symbol for symbol, cat in categories.items() if cat == category]
+        category_dfs[category] = prices[category_assets]
+        
+    return category_dfs
+
+
 def filter_high_correlation_pairs(prices, threshold=0.8):
     """
     Calculate the correlation matrix for each cryptocurrency time series and select pairs with a correlation above a specified threshold.
@@ -39,6 +58,8 @@ def filter_high_correlation_pairs(prices, threshold=0.8):
             if abs(corr_val) >= threshold:
                 pairs.append((symbols[i], symbols[j], corr_val))
     return corr_matrix, pairs
+
+
 
 
 

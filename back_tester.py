@@ -18,7 +18,11 @@ def compute_spread(S1, S2):
             - spread (pd.Series): The residual series (spread) obtained from the regression.
             - beta (float): The hedge ratio (slope coefficient) from the regression.
     """
-    S2_const = sm.add_constant(S2)
+
+    #Note: 
+    # Although the full regression model is S1 = α + βS2 + ϵ, this function computes the spread without including the intercept α. In many cointegration or pairs trading setups, the focus is on the relative movement captured by β.
+
+    S2_const = sm.add_constant(S2) #Adds a constant to the independent variable
     model = sm.OLS(S1, S2_const).fit()
     beta = model.params[1]
     spread = S1 - beta * S2
