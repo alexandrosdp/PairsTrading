@@ -108,27 +108,30 @@ def get_data_by_category(categories_dict, timeframe='1d', since=None, limit=365)
 # --------------------------
 
 if __name__ == "__main__":
-    # Define a list of symbols; adjust or extend as needed.
-    # symbols = ["BTC/USDT", "ETH/USDT", "XRP/USDT", "LTC/USDT", "BCH/USDT"]
+
+    print("TEST")
+
+    #Define a list of symbols; adjust or extend as needed.
+    symbols = ["BTC/USDT", "ETH/USDT", "XRP/USDT", "LTC/USDT", "BCH/USDT"]
     
-    # # Get aligned historical price data (last 365 days)
-    # print("Fetching and aligning data...")
-    # prices = get_aligned_data(symbols, timeframe='1d', limit=365)
-    # if prices.empty:
-    #     print("No data fetched. Please check your API connection or symbols.")
-    #     exit()
-    # else:
-    #     prices.to_csv("data/prices_data.csv")
+    # Get aligned historical price data (last 365 days)
+    print("Fetching and aligning data...")
+    prices = get_aligned_data(symbols, timeframe='1h', limit=1500)
+    if prices.empty:
+        print("No data fetched. Please check your API connection or symbols.")
+        exit()
+    else:
+        prices.to_csv("data/prices_data_hourly.csv")
 
-    categories = {
-    'Payment':  ['BTC/USDT','LTC/USDT','BCH/USDT'],
-    'Layer1':   ['ETH/USDT','ADA/USDT','SOL/USDT'],
-    'DeFi':     ['UNI/USDT','AAVE/USDT','COMP/USDT'],
-    # etc.
-}
+#     categories = {
+#     'Payment':  ['BTC/USDT','LTC/USDT','BCH/USDT'],
+#     'Layer1':   ['ETH/USDT','ADA/USDT','SOL/USDT'],
+#     'DeFi':     ['UNI/USDT','AAVE/USDT','COMP/USDT'],
+#     # etc.
+# }
 
-# Now fetch data category-by-category
-category_dataframes = get_data_by_category(categories, timeframe='1d', limit=365)
+# # Now fetch data category-by-category
+# category_dataframes = get_data_by_category(categories, timeframe='1d', limit=365)
 
 # category_dataframes is a dict: 
 # {

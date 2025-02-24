@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import statsmodels.api as sm
+import matplotlib.pyplot as plt
 # --------------------------
 # 3. Strategy Functions
 # --------------------------
@@ -53,13 +54,20 @@ def backtest_pair(spread, entry_threshold=1.0, exit_threshold=0.0):
     positions = []
     position = 0  # 1 for long spread, -1 for short spread, 0 for no position.
 
+    #Count long and short positions
+
+    longs = 0
+    shorts = 0
+
     for z in zscore:
         # Entry conditions: enter short if z > entry_threshold, long if z < -entry_threshold.
         if position == 0:
             if z > entry_threshold:
                 position = -1
+                shorts += 1
             elif z < -entry_threshold:
                 position = 1
+                longs += 1
         # Exit conditions: exit when the z-score reverts close to 0.
         elif position == 1 and z >= -exit_threshold:
             position = 0
@@ -68,7 +76,7 @@ def backtest_pair(spread, entry_threshold=1.0, exit_threshold=0.0):
         positions.append(position)
     positions = pd.Series(positions, index=spread.index)
     
-    return zscore, positions
+    return zscore, positions, longs, shorts
 
 def simulate_strategy(S1, S2, positions, beta):
     """
@@ -94,4 +102,62 @@ def simulate_strategy(S1, S2, positions, beta):
     pnl = pnl.fillna(0)
     cum_pnl = pnl.cumsum()
     return pnl, cum_pnl
+
+def plot_trading_simulation(S1, S2, sym1,sym2,zscore, positions, cum_pnl): 
+        
+        """
+        Plot the trading simulation results including stock prices, z-score, trading positions, and cumulative PnL.
+
+        Parameters:
+            S1 (pd.Series): Time series data for the first asset.
+            S2 (pd.Series): Time series data for the second asset.
+            zscore (pd.Series): The z-score of the spread.
+            positions (pd.Series): Series of trading positions generated from the backtest.
+            cum_pnl (pd.Series): Cumulative profit and loss (PnL) of the strategy.
+        """
+
+    
+        # Visualization
+        plt.figure(figsize=(12, 15))
+
+        plt.subplot(5, 1, 1)
+
+        #Plot s1 and s2 with separate y-axis
+        
+        ax1 = plt.gca()
+        ax2 = ax1.twinx()
+        ax1.plot(S1, label=sym1, color='blue')
+        ax2.plot(S2, label=sym2, color='red')
+        ax1.set_ylabel(sym1, color='blue')
+        ax2.set_ylabel(sym2, color='red')
+        plt.title(f"Stock Prices: {sym1} and {sym2}")
+        plt.legend()
+
+
+    
+        plt.subplot(5, 1, 2)
+        plt.plot(zscore, label='Z-Score')
+        plt.axhline(0, color='grey', linestyle='--', label='Mean')
+        plt.axhline(1.0, color='red', linestyle='--', label='Upper threshold')
+        plt.axhline(-1.0, color='green', linestyle='--', label='Lower threshold')
+        plt.title("Z-Score of Spread")
+        plt.legend()
+        
+        
+        plt.subplot(5, 1, 3)
+        plt.plot(positions, label='Positions', drawstyle='steps-mid')
+        plt.title("Trading Positions")
+        plt.legend()
+
+        # plt.tight_layout()
+        # plt.show()
+
+    
+        plt.subplot(5, 1, 4)
+        plt.plot(cum_pnl, label='Cumulative PnL')
+        plt.title("Strategy Performance (Cumulative PnL)")
+        plt.legend()
+    
+        plt.tight_layout()
+        plt.show()
 
