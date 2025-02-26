@@ -61,8 +61,119 @@ def filter_high_correlation_pairs(prices, threshold=0.8):
 
 
 
+# Helper function: splits the price DataFrame into non-overlapping windows.
+def split_price_series_into_windows(prices, window_size):
+    """
+    Splits the price time series into non-overlapping windows of a specified size.
+    
+    Parameters:
+        prices (pd.DataFrame): A DataFrame containing price data, where each column represents
+                               a cryptocurrency and the index is a datetime index.
+        window_size (int): Number of data points (rows) to include in each window.
+    
+    Returns:
+        list: A list of pd.DataFrame objects, each representing one window of the original data.
+    """
+    windows = []
+    n = len(prices)
+    num_windows = n // window_size  # Only complete windows are returned
+    
+    for i in range(num_windows):
+        start_idx = i * window_size             #Eg if windows size = 720 ---> 0 - 720, 720 - 1440, 1440 - 2160
+        end_idx = start_idx + window_size
+        window = prices.iloc[start_idx:end_idx]
+        windows.append(window)
+    
+    return windows
+
+# Modified cointegration test function that uses multiple windows.
+def find_cointegrated_pairs_windows(prices, high_corr_pairs, significance=0.05, window_size=720, min_pass_fraction=0.5):
+    """
+    Check high-correlation pairs for cointegration across multiple time windows.
+    
+    The full timeframe (e.g. 1 year of hourly data) is split into smaller windows using the 
+    provided window_size. For each candidate pair (from high_corr_pairs), the cointegration test 
+    is applied in each window (using coint_test_modified), and the fraction of windows where the 
+    p-value is below the significance level is recorded.
+    
+    Pairs that pass the cointegration test in at least min_pass_fraction of windows are selected.
+    The pairs are then ranked by the fraction of windows passed (descending) and by the average
+    p-value (ascending) as a tie-breaker.
+    
+    Parameters:
+        prices (pd.DataFrame): DataFrame containing hourly closing prices, with each column representing a symbol.
+        high_corr_pairs (list): List of tuples (sym1, sym2, correlation) for high-correlation pairs to test.
+        significance (float, optional): Significance level for the cointegration test. Default is 0.05.
+        window_size (int, optional): Number of data points per window (e.g., 720 for roughly one month of hourly data).
+        min_pass_fraction (float, optional): Minimum fraction of windows in which the cointegration test must pass.
+    
+    Returns:
+        tuple: A tuple containing:
+            - cointegrated_pairs (list): List of tuples (sym1, sym2, pass_fraction, avg_pvalue, correlation) for pairs that pass cointegration in enough windows.
+            - window_results (dict): A dictionary with keys as (sym1, sym2) and values as the list of p-values across windows.
+    """
+    # Split the full price DataFrame into windows
+    windows = split_price_series_into_windows(prices, window_size)
+    num_windows = len(windows)
+    
+    cointegrated_pairs = []
+    window_results = {}
+    
+    # Loop through each candidate pair from the high-correlation list.
+    for sym1, sym2, corr_val in high_corr_pairs:
+        pvalues = []
+        # Loop through each window and perform the cointegration test.
+        for window in windows:
+            try:
+                S1 = window[sym1]
+                S2 = window[sym2]
+                # Use your modified cointegration test function.
+                # It is assumed to return at least a p-value.
+                pvalue, _ = coint_test_modified(S1, S2)
+            except Exception as e:
+                pvalue = np.nan
+            pvalues.append(pvalue)
+        
+        pvalues_array = np.array(pvalues) #This creates a Boolean array (valid) that is True for every element in pvalues_array that is a finite number (i.e., not NaN or inf). This is important because sometimes a cointegration test might fail or return an invalid result, and you don’t want those to skew your calculations.
+        valid = np.isfinite(pvalues_array)
+        if valid.sum() == 0:
+            pass_fraction = 0
+            avg_pvalue = np.nan
+        else:
+            pass_count = np.sum(pvalues_array[valid] < significance)
+            pass_fraction = pass_count / valid.sum()
+            avg_pvalue = np.nanmean(pvalues_array[valid])
+        
+        window_results[(sym1, sym2)] = pvalues
+        
+        # Select pairs that pass the cointegration test in a sufficient fraction of windows.
+        if pass_fraction >= min_pass_fraction:
+            cointegrated_pairs.append((sym1, sym2, pass_fraction, avg_pvalue, corr_val))
+    
+    # Rank the pairs: first by descending pass_fraction, then by ascending average p-value.
+    cointegrated_pairs.sort(key=lambda x: (-x[2], x[3]))
+    
+    # Optionally, print out the results.
+    if cointegrated_pairs:
+        print("\nCointegrated pairs (across windows):")
+        for pair in cointegrated_pairs:
+            print(f"{pair[0]} & {pair[1]}: pass fraction = {pair[2]:.2f}, avg p-value = {pair[3]:.4f}, correlation = {pair[4]:.4f}")
+    else:
+        print("\nNo cointegrated pairs found across the windows.")
+    
+    return cointegrated_pairs, window_results
+
+# Example usage:
+# Assuming `prices` is your DataFrame with 1 year of hourly data and 
+# `high_corr_pairs` is a list of candidate pairs (sym1, sym2, correlation)
+# For instance:
+# high_corr_pairs = [('BTC/USDT', 'ETH/USDT', 0.9), ('XRP/USDT', 'LTC/USDT', 0.85), ... ]
+# cointegrated_pairs, window_results = find_cointegrated_pairs(prices, high_corr_pairs, significance=0.05, window_size=720, min_pass_fraction=0.5)
 
 
+
+
+#Normal cointegration method (not using windows)
 def find_cointegrated_pairs(prices, high_corr_pairs, significance=0.05):
     """
     Check all pairs of assets for cointegration using the Engle-Granger two-step method.
