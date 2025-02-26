@@ -56,18 +56,13 @@ def backtest_pair(spread, entry_threshold=1.0, exit_threshold=0.0):
 
     #Count long and short positions
 
-    longs = 0
-    shorts = 0
-
     for z in zscore:
         # Entry conditions: enter short if z > entry_threshold, long if z < -entry_threshold.
         if position == 0:
             if z > entry_threshold:
                 position = -1
-                shorts += 1
             elif z < -entry_threshold:
                 position = 1
-                longs += 1
         # Exit conditions: exit when the z-score reverts close to 0.
         elif position == 1 and z >= -exit_threshold:
             position = 0
@@ -76,7 +71,7 @@ def backtest_pair(spread, entry_threshold=1.0, exit_threshold=0.0):
         positions.append(position)
     positions = pd.Series(positions, index=spread.index)
     
-    return zscore, positions, longs, shorts
+    return zscore, positions
 
 def simulate_strategy(S1, S2, positions, beta):
     """
@@ -116,9 +111,18 @@ def plot_trading_simulation(S1, S2, sym1,sym2,zscore, positions, cum_pnl):
             cum_pnl (pd.Series): Cumulative profit and loss (PnL) of the strategy.
         """
 
-    
+
+        # Identify trade entry points: where the position goes from 0 to a nonzero value. THIS WILL NOT COUNT TRADES THAT ARE OPENED ON THE FIRST DAY FROM TIME 0
+        trade_entries = positions[(positions != 0) & (positions.shift(1) == 0)]
+        # Separate long and short entries
+        long_entries = trade_entries[trade_entries == 1]
+        short_entries = trade_entries[trade_entries == -1]
+
+        print(f"Long Entries: {len(long_entries)}, Short Entries: {len(short_entries)}")
+        
+            
         # Visualization
-        plt.figure(figsize=(12, 15))
+        plt.figure(figsize=(15, 20))
 
         plt.subplot(5, 1, 1)
 
@@ -138,10 +142,23 @@ def plot_trading_simulation(S1, S2, sym1,sym2,zscore, positions, cum_pnl):
         plt.subplot(5, 1, 2)
         plt.plot(zscore, label='Z-Score')
         plt.axhline(0, color='grey', linestyle='--', label='Mean')
-        plt.axhline(1.0, color='red', linestyle='--', label='Upper threshold')
+        plt.axhline(1.0, color='green', linestyle='--', label='Upper threshold')
         plt.axhline(-1.0, color='green', linestyle='--', label='Lower threshold')
+        plt.axhline(3.0, color='red', linestyle='--', label='Upper SL')
+        plt.axhline(-3.0, color='red', linestyle='--', label='Lower SL')
+
+
         plt.title("Z-Score of Spread")
         plt.legend()
+
+
+        # Plot markers for trade entries:
+        # For long entries (positions = +1), use green upward triangles.
+        plt.scatter(long_entries.index, zscore.loc[long_entries.index], marker='^', 
+                    color='green', s=100, label='Long Entry')
+        # For short entries (positions = -1), use red downward triangles.
+        plt.scatter(short_entries.index, zscore.loc[short_entries.index], marker='v', 
+                    color='red', s=100, label='Short Entry')
         
         
         plt.subplot(5, 1, 3)

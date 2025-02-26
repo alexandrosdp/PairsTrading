@@ -63,24 +63,28 @@ def filter_high_correlation_pairs(prices, threshold=0.8):
 
 
 
-def find_cointegrated_pairs(prices,high_corr_pairs, significance=0.05):
+def find_cointegrated_pairs(prices, high_corr_pairs, significance=0.05):
     """
     Check all pairs of assets for cointegration using the Engle-Granger two-step method.
     
     Parameters:
         prices (pd.DataFrame): DataFrame containing closing prices of assets with each column representing a symbol.
+        high_corr_pairs (list): List of tuples (symbol1, symbol2, correlation) for high correlation pairs to test.
         significance (float, optional): Significance level for the cointegration test. Default is 0.05.
     
     Returns:
         tuple: A tuple containing:
-            - pairs (list): List of tuples (symbol1, symbol2, p-value) for pairs where the p-value is below the significance level.
-            - pvalue_matrix (np.ndarray): Matrix of p-values for all tested pairs.
+            - cointegrated_pairs (list): List of tuples (symbol1, symbol2, p-value, correlation) for pairs 
+              where the p-value is below the significance level.
+            - pvalue_matrix (pd.DataFrame): DataFrame of p-values for all tested pairs, with coin names as index and columns.
+            - residuals_df (pd.DataFrame): DataFrame storing the residuals for each cointegrated pair.
     """
     n = prices.shape[1]
     keys = prices.columns
+    # Create a numpy array to store p-values
     pvalue_matrix = np.ones((n, n))
 
-    #Create a dataframe to store the residuals for each cointegrated pair
+    # Create a dataframe to store the residuals for each cointegrated pair
     residuals_df = pd.DataFrame()
 
     cointegrated_pairs = []
@@ -90,7 +94,7 @@ def find_cointegrated_pairs(prices,high_corr_pairs, significance=0.05):
         S2 = prices[sym2]
         pvalue, res_adf = coint_test_modified(S1, S2)
 
-        #Add p value to matrix
+        # Get the index positions of the coins
         i = keys.get_loc(sym1)
         j = keys.get_loc(sym2)
         pvalue_matrix[i, j] = pvalue
@@ -98,13 +102,13 @@ def find_cointegrated_pairs(prices,high_corr_pairs, significance=0.05):
         
         # If the p-value is less than the significance level, consider the pair cointegrated.
         if pvalue < significance:
-
             cointegrated_pairs.append((sym1, sym2, pvalue, corr_val))
-
-            #Store the residuals for each cointegrated pair in the dataframe
+            # Store the residuals for each cointegrated pair in the dataframe
             residuals_df[sym1 + '_' + sym2] = res_adf
-            
-            
+
+    # Convert the numpy p-value matrix to a DataFrame with appropriate labels.
+    pvalue_matrix_df = pd.DataFrame(pvalue_matrix, index=keys, columns=keys)
+    
     if cointegrated_pairs:
         print("\nCointegrated pairs (from pre-filtered high-correlation pairs):")
         for pair in cointegrated_pairs:
@@ -112,7 +116,7 @@ def find_cointegrated_pairs(prices,high_corr_pairs, significance=0.05):
     else:
         print("\nNo cointegrated pairs found among the high-correlation pairs.")
 
-    return cointegrated_pairs, pvalue_matrix, residuals_df
+    return cointegrated_pairs, pvalue_matrix_df, residuals_df
 
 def analyze_residuals(residuals_df, lags):
 

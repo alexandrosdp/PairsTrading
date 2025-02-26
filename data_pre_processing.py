@@ -1,6 +1,6 @@
 import ccxt
 import pandas as pd
-import numpy as np
+import os
 import statsmodels.api as sm
 from statsmodels.tsa.stattools import coint
 import datetime
@@ -101,6 +101,94 @@ def get_data_by_category(categories_dict, timeframe='1d', since=None, limit=365)
             print(f"No data fetched for {category_name}, skipping.")
     
     return category_data
+
+
+
+def merge_ohlc_closing_prices(directory):
+    """
+    Reads all merged CSVs from the given directory, extracts closing prices and timestamps, 
+    stores them in a single DataFrame, fills missing values, and saves the merged file.
+
+    Parameters:
+        directory (str): Path to the directory containing the merged OHLC CSV files.
+
+    Returns:
+        pd.DataFrame: A DataFrame with timestamps as the index and closing prices of all cryptos as columns.
+    """
+    closing_prices = {}
+
+    # Iterate over all CSV files in the directory
+    for file in os.listdir(directory):
+        if file.endswith(".csv"):  # Ensure we only process CSV files
+            file_path = os.path.join(directory, file)
+
+            # Extract the trading pair from the filename (e.g., "BTCUSDT.csv" → "BTC/USDT")
+            symbol = file.replace(".csv", "").replace("USDT", "/USDT")
+
+            try:
+                # Read CSV file
+                df = pd.read_csv(file_path)
+
+                # Ensure required columns exist
+                if "Open Time" in df.columns and "Close" in df.columns:
+                    df["Open Time"] = pd.to_datetime(df["Open Time"])
+                    df = df[["Open Time", "Close"]]
+                    df.rename(columns={"Open Time": "timestamp", "Close": symbol}, inplace=True)
+
+                    # Store data in dictionary
+                    closing_prices[symbol] = df
+                else:
+                    print(f"⚠️ Skipping {file} - Required columns missing")
+
+            except Exception as e:
+                print(f"❌ Error processing {file}: {e}")
+
+    # Merge all dataframes on timestamp
+    if closing_prices:
+        merged_df = list(closing_prices.values())[0]  # Start with the first DataFrame
+        for symbol, df in list(closing_prices.items())[1:]:
+            merged_df = pd.merge(merged_df, df, on="timestamp", how="outer")  # Merge on timestamp
+
+        # Sort by timestamp
+        merged_df.sort_values("timestamp", inplace=True)
+        merged_df.reset_index(drop=True, inplace=True)
+
+        # Check for NaNs and log missing values
+        nan_counts = merged_df.isna().sum()
+        total_nans = nan_counts.sum()
+
+        if total_nans > 0:
+            print(f"⚠️ Detected {total_nans} missing values across the dataset.")
+
+            # Print NaN counts per column
+            for column, count in nan_counts.items():
+                if count > 0:
+                    print(f"   - {column}: {count} missing values")
+
+            # Fill missing values using forward fill (then backward fill for remaining NaNs)
+            merged_df.fillna(method='ffill', inplace=True)
+            merged_df.fillna(method='bfill', inplace=True)
+
+            # Check if any NaNs remain after filling
+            remaining_nans = merged_df.isna().sum().sum()
+            if remaining_nans == 0:
+                print("✅ All missing values have been successfully filled.")
+            else:
+                print(f"⚠️ {remaining_nans} missing values remain after filling.")
+
+        else:
+            print("✅ No missing values detected.")
+
+        # Save the merged DataFrame as a CSV in the same directory
+        output_file = os.path.join(directory, "merged_L1_closing_prices.csv")
+        merged_df.to_csv(output_file, index=False)
+        print(f"✅ Merged file saved as: {output_file}")
+
+        return merged_df
+    else:
+        print("⚠️ No valid data found.")
+        return None
+
 
 
 # --------------------------
