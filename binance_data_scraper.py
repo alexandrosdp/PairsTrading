@@ -3,24 +3,19 @@ import os
 import zipfile
 import pandas as pd
 from datetime import datetime, timedelta
+import statsmodels.api as sm
 
 # ----------------- CONFIGURATION -----------------
 SECTOR_COIN_LIST = {
-    # "L1": ["TRXUSDT", "BTCUSDT", "ICPUSDT", "NEARUSDT", "ETHUSDT", 
-    #        "BNBUSDT", "AVAXUSDT", "SOLUSDT", "TONUSDT", "MATICUSDT"],
-           "L1": ["SUIUSDT"],
-    # "L2": [
-    # "ARBUSDT", "OPUSDT", "ZKSYNCUSDT", "MNTUSDT", "METISUSDT",
-    # "FRAXTALUSDT", "SCRUSDT", "FUELUSDT", "POLYGONZKEVMUSDT", "IMXUSDT",
-    # "BASEUSDT", "STRKUSDT", "BLASTUSDT", "LINEAUSDT", "LSKUSDT",
-    # "ZIRCUITUSDT", "SOPHONUSDT", "MANTAUSDT", "GRAVITYUSDT", "TAIKOUSDT","STXUSDT"
-    # ],
-    # "Lending": ["AAVEUSDT", "COMPUSDT", "MKRUSDT"],
-    # "DEX": ["UNIUSDT", "SUSHIUSDT", "DYDXUSDT", "GMXUSDT"]
+    # Example structure
+    "From_Paper": ["BTCEUR", "BTCGBP"]
 }
 
-INTERVAL = "1h"  # Binance interval ("1m", "1h", "1d", etc.)
-YEAR = 2024  # Year for data
+INTERVAL = "1m"  # Binance interval ("1m", "1h", "1d", etc.)
+YEAR = 2023      # Year for data
+
+# If None (or empty list), fetch entire year. Otherwise, specify a list of months (1..12), e.g. [1, 2, 7]
+SELECTED_MONTHS = [10,11] # Fetch only October and November
 
 # Directory to store data
 CSV_DIR = "binance_csvs"
@@ -32,6 +27,7 @@ COLUMNS = [
     "Close Time", "Quote Asset Volume", "Number of Trades",
     "Taker Buy Base Volume", "Taker Buy Quote Volume", "Ignore"
 ]
+
 
 # ----------------- HELPER FUNCTIONS -----------------
 def check_binance_availability():
@@ -65,16 +61,34 @@ def check_binance_availability():
 
 def generate_filenames(symbol):
     """
-    Generates the filenames for each day of the specified YEAR.
+    Generates the filenames for each day of the specified YEAR/INTERVAL,
+    optionally restricted to SELECTED_MONTHS if it's not None.
     """
-    start_date = datetime(YEAR, 1, 1)
-    end_date = datetime(YEAR, 12, 31)
-    delta = timedelta(days=1)
-
     filenames = []
-    while start_date <= end_date:
-        filenames.append(f"{symbol}-{INTERVAL}-{start_date.strftime('%Y-%m-%d')}.zip")
-        start_date += delta
+
+    if SELECTED_MONTHS:
+        # Build day ranges only for the selected months
+        for month in SELECTED_MONTHS:
+            start_date = datetime(YEAR, month, 1)
+
+            # Increment day by day until we leave that month (or the year ends)
+            current_month = month
+            day_delta = timedelta(days=1)
+
+            while start_date.month == current_month and start_date.year == YEAR:
+                file_name = f"{symbol}-{INTERVAL}-{start_date.strftime('%Y-%m-%d')}.zip"
+                filenames.append(file_name)
+                start_date += day_delta
+
+    else:
+        # Default: entire year
+        start_date = datetime(YEAR, 1, 1)
+        end_date = datetime(YEAR, 12, 31)
+        delta = timedelta(days=1)
+        while start_date <= end_date:
+            file_name = f"{symbol}-{INTERVAL}-{start_date.strftime('%Y-%m-%d')}.zip"
+            filenames.append(file_name)
+            start_date += delta
 
     return filenames
 
@@ -90,7 +104,9 @@ def download_and_extract(symbol, sector, file_list):
         file_url = f"https://data.binance.vision/data/spot/daily/klines/{symbol}/{INTERVAL}/{file_name}"
         zip_path = os.path.join(sector_dir, file_name)
 
-        if os.path.exists(zip_path.replace(".zip", ".csv")):
+        # If the CSV from that date is already present, skip re-downloading
+        csv_candidate = zip_path.replace(".zip", ".csv")
+        if os.path.exists(csv_candidate):
             print(f"✅ {file_name} already processed, skipping.")
             continue
 
@@ -113,10 +129,15 @@ def download_and_extract(symbol, sector, file_list):
 
 def merge_csvs(symbol, sector):
     """
-    Merges all CSV files for a symbol into a single file.
+    Merges all CSV files for a symbol into a single file,
+    then deletes the individual daily CSVs after merging.
     """
     sector_dir = f"{BASE_DIR}/{sector}/{YEAR}/{INTERVAL}/"
-    csv_files = [os.path.join(sector_dir, f) for f in os.listdir(sector_dir) if f.startswith(symbol) and f.endswith(".csv")]
+    csv_files = [
+        os.path.join(sector_dir, f)
+        for f in os.listdir(sector_dir)
+        if f.startswith(symbol) and f.endswith(".csv")
+    ]
     
     print(f"📂 Found {len(csv_files)} CSV files for {symbol}.")
 
@@ -153,15 +174,30 @@ def merge_csvs(symbol, sector):
     merged_df.to_csv(output_file, index=False)
     print(f"✅ Merged CSV saved: {output_file}")
 
+    # --- Delete individual CSVs after merging ---
+    for f in csv_files:
+        # Skip the newly created merged file
+        if f == output_file:
+            continue
+        try:
+            os.remove(f)
+            # print(f"🗑️ Deleted {f}")
+        except OSError as e:
+            print(f"⚠️ Error deleting {f}: {e}")
+
 
 # ----------------- MAIN SCRIPT -----------------
 if __name__ == "__main__":
+    # Example: SELECTED_MONTHS = [1, 2, 12]  # fetch January, February, December of the YEAR
+    # If SELECTED_MONTHS is None or an empty list, the entire year is fetched
+
     available_coins = check_binance_availability()
 
     for sector, coins in available_coins.items():
         for coin in coins:
             print(f"\n🚀 Processing {coin} in {sector} sector...")
 
+            # Now generate filenames for the entire YEAR or only SELECTED_MONTHS
             filenames = generate_filenames(coin)
             download_and_extract(coin, sector, filenames)
             merge_csvs(coin, sector)
