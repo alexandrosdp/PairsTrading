@@ -86,78 +86,93 @@ def split_price_series_into_windows(prices, window_size):
     
     return windows
 
-# Modified cointegration test function that uses multiple windows.
-def find_cointegrated_pairs_windows(prices, high_corr_pairs, significance=0.05, window_size=720, min_pass_fraction=0.5):
+
+def find_cointegrated_pairs_windows(prices, high_corr_pairs=None, significance=0.05, window_size=720, min_pass_fraction=0.5):
+    
     """
-    Check high-correlation pairs for cointegration across multiple time windows.
+    Check pairs of symbols for cointegration across multiple time windows.
     
-    The full timeframe (e.g. 1 year of hourly data) is split into smaller windows using the 
-    provided window_size. For each candidate pair (from high_corr_pairs), the cointegration test 
-    is applied in each window (using coint_test_modified), and the fraction of windows where the 
-    p-value is below the significance level is recorded.
-    
-    Pairs that pass the cointegration test in at least min_pass_fraction of windows are selected.
-    The pairs are then ranked by the fraction of windows passed (descending) and by the average
-    p-value (ascending) as a tie-breaker.
-    
+    1. If high_corr_pairs is None or empty, the function will check *all* possible 
+       pair combinations from the columns of 'prices'.
+    2. Otherwise, it will only check the candidate pairs in high_corr_pairs (which 
+       might have come from a high-correlation filter).
+    3. The full timeframe is split into windows (via your split_price_series_into_windows 
+       helper) of size 'window_size'.
+    4. For each pair, we apply the coint_test_modified in each window and track 
+       how many windows pass the significance threshold (p-value < significance).
+    5. Pairs that pass in at least 'min_pass_fraction' of valid windows are retained.
+
     Parameters:
-        prices (pd.DataFrame): DataFrame containing hourly closing prices, with each column representing a symbol.
-        high_corr_pairs (list): List of tuples (sym1, sym2, correlation) for high-correlation pairs to test.
-        significance (float, optional): Significance level for the cointegration test. Default is 0.05.
-        window_size (int, optional): Number of data points per window (e.g., 720 for roughly one month of hourly data).
-        min_pass_fraction (float, optional): Minimum fraction of windows in which the cointegration test must pass.
-    
+        prices (pd.DataFrame): DataFrame of prices, each column is a symbol.
+        high_corr_pairs (list or None): List of (sym1, sym2, correlation), or None/empty to test all pairs.
+        significance (float): Significance level for cointegration test. Default 0.05.
+        window_size (int): Number of data points (rows) per window. e.g. 720 for 30 days of hourly data.
+        min_pass_fraction (float): Min fraction of windows where p-value < significance.
+
     Returns:
-        tuple: A tuple containing:
-            - cointegrated_pairs (list): List of tuples (sym1, sym2, pass_fraction, avg_pvalue, correlation) for pairs that pass cointegration in enough windows.
-            - window_results (dict): A dictionary with keys as (sym1, sym2) and values as the list of p-values across windows.
+        tuple: (cointegrated_pairs, window_results)
+            - cointegrated_pairs (list): 
+                [ (sym1, sym2, pass_fraction, avg_pvalue, correlation), ... ]
+            - window_results (dict):
+                { (sym1, sym2): [pvalue_window1, pvalue_window2, ...], ... }
     """
-    # Split the full price DataFrame into windows
+    # 1) If 'high_corr_pairs' is None or empty, build a list of *all possible* pair combos from prices.columns
+    if not high_corr_pairs:  # covers None or empty list
+        symbols = prices.columns
+        high_corr_pairs = []
+        for i in range(len(symbols)):
+            for j in range(i+1, len(symbols)):
+                # We'll set correlation to None (or 0) since we don't know it
+                high_corr_pairs.append((symbols[i], symbols[j], None))
+
+    # 2) Split the full data into windows
     windows = split_price_series_into_windows(prices, window_size)
     num_windows = len(windows)
     
     cointegrated_pairs = []
     window_results = {}
     
-    # Loop through each candidate pair from the high-correlation list.
+    # 3) Loop through each pair and test cointegration in each window
     for sym1, sym2, corr_val in high_corr_pairs:
         pvalues = []
-        # Loop through each window and perform the cointegration test.
-        for window in windows:
+        
+        for window_df in windows:
             try:
-                S1 = window[sym1]
-                S2 = window[sym2]
-                # Use your modified cointegration test function.
-                # It is assumed to return at least a p-value.
+                S1 = window_df[sym1]
+                S2 = window_df[sym2]
+                # Modified cointegration test that returns (pvalue, <other info>)
                 pvalue, _ = coint_test_modified(S1, S2)
-            except Exception as e:
+            except Exception:
                 pvalue = np.nan
             pvalues.append(pvalue)
         
-        pvalues_array = np.array(pvalues) #This creates a Boolean array (valid) that is True for every element in pvalues_array that is a finite number (i.e., not NaN or inf). This is important because sometimes a cointegration test might fail or return an invalid result, and you don’t want those to skew your calculations.
-        valid = np.isfinite(pvalues_array)
+        pvalues_array = np.array(pvalues)
+        valid = np.isfinite(pvalues_array)  # windows with valid p-values
         if valid.sum() == 0:
-            pass_fraction = 0
+            pass_fraction = 0.0
             avg_pvalue = np.nan
         else:
             pass_count = np.sum(pvalues_array[valid] < significance)
             pass_fraction = pass_count / valid.sum()
             avg_pvalue = np.nanmean(pvalues_array[valid])
         
+        # Store all window p-values for reference
         window_results[(sym1, sym2)] = pvalues
         
-        # Select pairs that pass the cointegration test in a sufficient fraction of windows.
+        # 4) Keep pairs that pass in enough windows
         if pass_fraction >= min_pass_fraction:
-            cointegrated_pairs.append((sym1, sym2, pass_fraction, avg_pvalue, corr_val))
+            # If correlation was None, we can just store 0 or None here
+            cval = corr_val if corr_val is not None else 0.0
+            cointegrated_pairs.append((sym1, sym2, pass_fraction, avg_pvalue, cval))
     
-    # Rank the pairs: first by descending pass_fraction, then by ascending average p-value.
+    # 5) Sort results: pass_fraction desc, then avg_pvalue asc
     cointegrated_pairs.sort(key=lambda x: (-x[2], x[3]))
     
-    # Optionally, print out the results.
+    # Optional: Print results
     if cointegrated_pairs:
         print("\nCointegrated pairs (across windows):")
         for pair in cointegrated_pairs:
-            print(f"{pair[0]} & {pair[1]}: pass fraction = {pair[2]:.2f}, avg p-value = {pair[3]:.4f}, correlation = {pair[4]:.4f}")
+            print(f"{pair[0]} & {pair[1]}: pass fraction={pair[2]:.2f}, avg p-value={pair[3]:.4f}, correlation={pair[4]}")
     else:
         print("\nNo cointegrated pairs found across the windows.")
     
@@ -169,6 +184,90 @@ def find_cointegrated_pairs_windows(prices, high_corr_pairs, significance=0.05, 
 # For instance:
 # high_corr_pairs = [('BTC/USDT', 'ETH/USDT', 0.9), ('XRP/USDT', 'LTC/USDT', 0.85), ... ]
 # cointegrated_pairs, window_results = find_cointegrated_pairs(prices, high_corr_pairs, significance=0.05, window_size=720, min_pass_fraction=0.5)
+
+
+def plot_spread_in_windows(sym1, sym2, windows, window_results, significance=0.05):
+    """
+    Plots the spread for each rolling/chunked window for a given pair (sym1, sym2),
+    labeling each subplot with the coint test p-value for that window (obtained
+    from the window_results dictionary).
+
+    Arguments:
+        sym1 (str): Symbol name for the first series
+        sym2 (str): Symbol name for the second series
+        windows (list of pd.DataFrame): List of windowed data (e.g., from
+            split_price_series_into_windows). Each window_df should contain
+            columns [sym1, sym2].
+        window_results (dict): Dictionary returned by find_cointegrated_pairs_windows,
+            typically under window_results[(sym1, sym2)] = [pval_win1, pval_win2, ...].
+            The length of this list should match the number of windows.
+        significance (float): Significance level. Used to highlight if p-value < significance.
+
+    Returns:
+        None. Displays a figure with subplots (one per window).
+    """
+
+    n_windows = len(windows)
+    if n_windows == 0:
+        print("No windows to plot.")
+        return
+
+    # Fetch the list of p-values from window_results for this specific pair
+    pvalues = window_results.get((sym1, sym2), [])
+    if len(pvalues) != n_windows:
+        print(f"Warning: Number of p-values ({len(pvalues)}) does not match number of windows ({n_windows}).")
+        print("Plotting will proceed, but alignment may be incorrect.")
+    
+    # Create subplots (one per window)
+    fig, axes = plt.subplots(n_windows, 1, figsize=(10, 3 * n_windows), sharex=False)
+
+    # If there's only 1 window, axes is not an array, so wrap it
+    if n_windows == 1:
+        axes = [axes]
+
+    for i, window_df in enumerate(windows):
+        ax = axes[i]
+        # Extract the series for the current window
+        S1 = window_df[sym1].dropna()
+        S2 = window_df[sym2].dropna()
+
+        # Align them just in case (inner join on the index)
+        S1, S2 = S1.align(S2, join='inner')
+
+        # Quick OLS to get alpha, beta for this window
+        # OLS: S1 = alpha + beta * S2
+        X = sm.add_constant(S2)
+        model = sm.OLS(S1, X, missing='drop').fit()
+        alpha = model.params['const']
+        beta = model.params[S2.name]
+
+        # Spread: S1 - alpha - beta*S2
+        spread = S1 - alpha - beta * S2
+
+        # Plot the spread
+        ax.plot(spread.index, spread, label=f"Spread (Window {i+1})")
+
+        # Horizontal line at mean
+        mean_spread = spread.mean()
+        ax.axhline(mean_spread, color='r', linestyle='--', label='Mean')
+
+        # Retrieve p-value for this window if it exists
+        if i < len(pvalues):
+            pval = pvalues[i]
+        else:
+            pval = np.nan
+
+        below_signif = (pval < significance)
+        if np.isfinite(pval):
+            coint_label = f"p={pval:.4g} (<{significance})" if below_signif else f"p={pval:.4g}"
+        else:
+            coint_label = "p=NaN"
+
+        ax.set_title(f"Window {i+1}: {sym1} & {sym2} | coint {coint_label}")
+        ax.legend(loc='best')
+
+    plt.tight_layout()
+    plt.show()
 
 
 

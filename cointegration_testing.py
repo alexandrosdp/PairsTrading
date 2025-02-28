@@ -1814,11 +1814,14 @@ def coint_test_modified(
     if trend == "n":
         xx = y1
     else:
+        #If `trend="c"` or `"ct"`, it uses `add_trend` to **append a constant** (or constant + trend) column to `y1`.
+        #Then it does `OLS(y0, xx)`, which implies: y0=α+βy1(plus possibly a trend term),if `trend="c"` is used
         xx = add_trend(y1, trend=trend, prepend=False)
+
 
     res_co = OLS(y0, xx).fit()
 
-    if res_co.rsquared < 1 - 100 * SQRTEPS:
+    if res_co.rsquared < 1 - 100 * SQRTEPS: # res_co.resid is: εt​= y0t ​− [α + β*​y1t​].
         res_adf = adfuller(
             res_co.resid, maxlag=maxlag, autolag=autolag, regression="n", regresults=True 
         ) #resadf contains multiple values for the adf test. regression = "n" means no constant or trend
