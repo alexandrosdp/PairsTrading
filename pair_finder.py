@@ -206,7 +206,7 @@ def plot_spread_in_windows(sym1, sym2, windows, window_results, significance=0.0
     Returns:
         None. Displays a figure with subplots (one per window).
     """
-
+    
     n_windows = len(windows)
     if n_windows == 0:
         print("No windows to plot.")
