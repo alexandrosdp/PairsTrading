@@ -15,7 +15,7 @@ INTERVAL = "1m"  # Binance interval ("1m", "1h", "1d", etc.)
 YEAR = 2023      # Year for data
 
 # If None (or empty list), fetch entire year. Otherwise, specify a list of months (1..12), e.g. [1, 2, 7]
-SELECTED_MONTHS = [10,11] # Fetch only October and November
+SELECTED_MONTHS = [12] # Fetch only October and November
 
 # Directory to store data
 CSV_DIR = "binance_csvs"
@@ -70,7 +70,7 @@ def generate_filenames(symbol):
         # Build day ranges only for the selected months
         for month in SELECTED_MONTHS:
             start_date = datetime(YEAR, month, 1)
-
+        
             # Increment day by day until we leave that month (or the year ends)
             current_month = month
             day_delta = timedelta(days=1)

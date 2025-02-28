@@ -180,7 +180,7 @@ def merge_ohlc_closing_prices(directory):
             print("✅ No missing values detected.")
 
         # Save the merged DataFrame as a CSV in the same directory
-        output_file = os.path.join(directory, "merged_From_Paper_closing_prices.csv")
+        output_file = os.path.join(directory, "merged_From_Paper_closing_prices_DEC.csv")
         merged_df.to_csv(output_file, index=False)
         print(f"✅ Merged file saved as: {output_file}")
 
