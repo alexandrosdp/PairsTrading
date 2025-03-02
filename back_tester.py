@@ -60,20 +60,25 @@ def compute_spread_series(S1, S2, window_size=None):
     spread_series = pd.Series(index=S1.index, dtype=float)
     
     # Loop over the time series, starting from the first time index where a full window is available.
-    for t in range(window_size - 1, len(S1)): #Start from the first time index where a full window is available
+    for t in range(window_size, len(S1)): #Start from the first time index where a full window is available
         # Get the rolling window data ending at time t
-        S1_window = S1.iloc[t - window_size + 1 : t + 1]  # S1 data for the window
-        S2_window = S2.iloc[t - window_size + 1 : t + 1]  # S2 data for the window
+        S1_window = S1.iloc[t - window_size: t]  # S1 data for the window
+        S2_window = S2.iloc[t - window_size: t]  # S2 data for the window
         
         # Perform OLS regression to estimate the hedge ratio beta for the window
         X = sm.add_constant(S2_window)
         model = sm.OLS(S1_window, X).fit()
+
+        #Record the intercept (alpha) and hedge ratio (beta) for the current window
+        #Include alpha since Engle–Granger cointegration typically uses the intercept in the regression formula for the spread
+        alpha_t = model.params[0]
         beta_t = model.params[1]
         
         # Record the beta for the current time t
         beta_series.iloc[t] = beta_t
+
         # Compute the spread at time t using the dynamically estimated beta
-        spread_series.iloc[t] = S1.iloc[t] - beta_t * S2.iloc[t]
+        spread_series.iloc[t] = S1.iloc[t] - alpha_t - beta_t * S2.iloc[t]
 
     return spread_series, beta_series
 
@@ -98,12 +103,26 @@ def compute_rolling_zscore(spread_series, window_size):
             - rolling_mean (pd.Series): The rolling mean of the spread.
             - rolling_std (pd.Series): The rolling standard deviation of the spread.
     """
+
+    #You can test the logic of this function using this dummy code:
+    #-------------------------------------------------------------
+    # prices = pd.Series([100, 105, 110, 120, 130], 
+    #                index=pd.date_range("2024-03-01", periods=5))
+
+    # # 3-day trailing average, not including the current day
+    # rolling_avg = prices.rolling(window=3, closed="left",min_periods=3).mean()
+
+    # df = pd.DataFrame({'price': prices, 'trailing_avg': rolling_avg})
+    # print(df)
+    #-------------------------------------------------------------
+
+
     # Compute the rolling mean and standard deviation
-    rolling_mean = spread_series.rolling(window=window_size, min_periods=window_size).mean()
-    rolling_std = spread_series.rolling(window=window_size, min_periods=window_size).std()
+    rolling_mean = spread_series.rolling(window=window_size, closed = "left", min_periods=window_size).mean() #closed='left' excludes the current row from the window, avoiding using the current data point at time t in the calculation. min_periods=window_size ensures that the first window has at least window_size observations.
+    rolling_std = spread_series.rolling(window=window_size,  closed = "left", min_periods=window_size).std()
     
     # Compute the rolling z-score
-    zscore = (spread_series - rolling_mean) / rolling_std
+    zscore = (spread_series - rolling_mean) / rolling_std #The z-score at time t is calculated as: zscore_t = (spread_series_t - rolling_mean_t) / rolling_std_t
     
     return zscore, rolling_mean, rolling_std
 
@@ -513,13 +532,28 @@ def simulate_true_strategy(S1, S2, positions, beta):
 
 
 
-def plot_trading_simulation(S1, S2, sym1, sym2, zscore, positions, cum_pnl): 
+def plot_trading_simulation(
+    S1, 
+    S2, 
+    sym1, 
+    sym2, 
+    zscore, 
+    positions, 
+    cum_pnl,
+    window_start=None,
+    window_end=None
+): 
     """
-    Plot the trading simulation results including stock prices, z-score, trading positions, and cumulative PnL.
+    Plot the trading simulation results including stock prices, z-score, trading positions, 
+    and cumulative PnL. Adds the option to zoom in on a specific window of data 
+    by specifying window_start and window_end.
+
+    If window_start and window_end are provided, all series are sliced to that time range. 
+    Otherwise, the full range is plotted.
     
     In addition to plotting the z-score and positions, this function marks on the stock price
     plots where trades were initiated.
-    
+
     For a long spread (positions = +1):
         - S1 is long (green upward marker)
         - S2 is short (red downward marker)
@@ -533,10 +567,23 @@ def plot_trading_simulation(S1, S2, sym1, sym2, zscore, positions, cum_pnl):
         sym1 (str): Name/symbol of the first asset.
         sym2 (str): Name/symbol of the second asset.
         zscore (pd.Series): The z-score of the spread.
-        positions (pd.Series): Trading signals generated from the backtest (1 for long, -1 for short, 0 for no position).
+        positions (pd.Series): Trading signals generated from the backtest 
+                               (1 for long, -1 for short, 0 for no position).
         cum_pnl (pd.Series): Cumulative profit and loss (PnL) of the strategy.
+        window_start (object, optional): Start of the time slice (timestamp or index label). 
+                                         If None, uses the start of the entire data.
+        window_end (object, optional): End of the time slice (timestamp or index label).
+                                       If None, uses the end of the entire data.
     """
-        
+
+    # 1) If window_start or window_end is given, slice all series to zoom in
+    if window_start is not None or window_end is not None:
+        S1 = S1.loc[window_start:window_end]
+        S2 = S2.loc[window_start:window_end]
+        zscore = zscore.loc[window_start:window_end]
+        positions = positions.loc[window_start:window_end]
+        cum_pnl = cum_pnl.loc[window_start:window_end]
+
     # Identify trade entry points: where the position changes from 0 to nonzero.
     trade_entries = positions[(positions != 0) & (positions.shift(1) == 0)]
     # Separate long and short entries.
@@ -551,6 +598,7 @@ def plot_trading_simulation(S1, S2, sym1, sym2, zscore, positions, cum_pnl):
     plt.subplot(5, 1, 1)
     ax1 = plt.gca()
     ax2 = ax1.twinx()
+
     ax1.plot(S1, label=sym1, color='blue')
     ax2.plot(S2, label=sym2, color='red')
 
@@ -559,59 +607,51 @@ def plot_trading_simulation(S1, S2, sym1, sym2, zscore, positions, cum_pnl):
     plt.title(f"Stock Prices: {sym1} and {sym2}")
     
     # Add markers for trade entries on S1 (ax1):
-    ax1.scatter(long_entries.index, S1.loc[long_entries.index], marker='^', 
-                color='green', s=100, label='S1 Long Entry (Long Spread)')
-    ax1.scatter(short_entries.index, S1.loc[short_entries.index], marker='v', 
-                color='red', s=100, label='S1 Short Entry (Short Spread)')
+    ax1.scatter(long_entries.index, S1.loc[long_entries.index], 
+                marker='^', color='green', s=100, label='S1 Long Entry (Long Spread)')
+    ax1.scatter(short_entries.index, S1.loc[short_entries.index],
+                marker='v', color='red', s=100, label='S1 Short Entry (Short Spread)')
     
     # Add markers for trade entries on S2 (ax2):
-    # For long spread, S2 is short: mark with red downward triangle.
-    ax2.scatter(long_entries.index, S2.loc[long_entries.index], marker='v', 
-                color='red', s=100, label='S2 Short Entry (Long Spread)')
-    # For short spread, S2 is long: mark with green upward triangle.
-    ax2.scatter(short_entries.index, S2.loc[short_entries.index], marker='^', 
-                color='green', s=100, label='S2 Long Entry (Short Spread)')
+    # For long spread, S2 is short: red downward triangle.
+    ax2.scatter(long_entries.index, S2.loc[long_entries.index],
+                marker='v', color='red', s=100, label='S2 Short Entry (Long Spread)')
+    # For short spread, S2 is long: green upward triangle.
+    ax2.scatter(short_entries.index, S2.loc[short_entries.index],
+                marker='^', color='green', s=100, label='S2 Long Entry (Short Spread)')
 
-
+    # Vertical lines at each trade entry
     for entry in long_entries.index:
         plt.axvline(entry, color='green', linestyle='--')
     for entry in short_entries.index:
         plt.axvline(entry, color='red', linestyle='--')
 
-
-    
-    # # Combine legends from both axes.
-    # lines1, labels1 = ax1.get_legend_handles_labels()
-    # lines2, labels2 = ax2.get_legend_handles_labels()
-    # ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
-    
     # Subplot 2: Plot z-score with thresholds and markers.
     plt.subplot(5, 1, 2)
     plt.plot(zscore, label='Z-Score')
     plt.axhline(0, color='grey', linestyle='--', label='Mean')
     plt.axhline(1.0, color='green', linestyle='--', label='Upper threshold')
     plt.axhline(-1.0, color='green', linestyle='--', label='Lower threshold')
-    # plt.axhline(3.0, color='red', linestyle='--', label='Upper SL')
-    # plt.axhline(-3.0, color='red', linestyle='--', label='Lower SL')
 
+    # Example: add vertical dashed lines every 30 days if you want
+    if pd.api.types.is_datetime64_any_dtype(zscore.index):
+        boundaries = pd.date_range(start=zscore.index[0], end=zscore.index[-1], freq='30D')
+        for boundary in boundaries:
+            plt.axvline(boundary, color='black', linestyle=':', linewidth=1, label='30-Day Boundary')
+        # Remove duplicate labels
+        handles, labels = plt.gca().get_legend_handles_labels()
+        unique = dict(zip(labels, handles))
+        plt.legend(unique.values(), unique.keys())
+    else:
+        # If not datetime, just show a normal legend
+        plt.legend()
 
-    # Add vertical dashed lines every 30 days.
-    # Assuming the zscore index is datetime-like:
-    boundaries = pd.date_range(start=zscore.index[0], end=zscore.index[-1], freq='30D')
-    for boundary in boundaries:
-        plt.axvline(boundary, color='black', linestyle=':', linewidth=1, label='30-Day Boundary')
-    
-    # Remove duplicate labels for the boundary lines.
-    handles, labels = plt.gca().get_legend_handles_labels()
-    unique = dict(zip(labels, handles))
-    plt.legend(unique.values(), unique.keys())
-    
     plt.title("Z-Score of Spread")
     plt.scatter(long_entries.index, zscore.loc[long_entries.index], marker='^', 
                 color='green', s=100, label='Long Entry')
     plt.scatter(short_entries.index, zscore.loc[short_entries.index], marker='v', 
                 color='red', s=100, label='Short Entry')
-    
+
     # Subplot 3: Plot trading positions.
     plt.subplot(5, 1, 3)
     plt.plot(positions, label='Positions', drawstyle='steps-mid')
@@ -626,3 +666,4 @@ def plot_trading_simulation(S1, S2, sym1, sym2, zscore, positions, cum_pnl):
     
     plt.tight_layout()
     plt.show()
+
