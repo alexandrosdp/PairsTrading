@@ -112,7 +112,7 @@ def compute_rolling_zscore(spread_series, window_size):
 # and you want to use a window of, say, 720 observations (e.g., roughly one month for hourly data):
 # zscore_series, roll_mean, roll_std = compute_rolling_zscore(spread_series, window_size=720)
 
-def backtest_pair_rolling(spread_series, zscore, entry_threshold=1.0, exit_threshold=0.0):
+def backtest_pair_rolling(spread_series, zscore, entry_threshold=1.0, exit_threshold=0.0, stop_loss_threshold=2.0):
     """
     Generate trading signals based on the rolling z-score of the spread series using a moving window.
     
@@ -133,84 +133,84 @@ def backtest_pair_rolling(spread_series, zscore, entry_threshold=1.0, exit_thres
         window_size (int): The number of observations to use in computing the rolling z-score.
         entry_threshold (float, optional): The z-score threshold for entering a trade. Default is 1.0.
         exit_threshold (float, optional): The z-score level for exiting a trade. Default is 0.0.
+        stop_loss_threshold (float, optional): The z-score level for a stop-loss exit. Default is 2.0.
     
     Returns:
         tuple: A tuple containing:
-            - zscore (pd.Series): The rolling z-score series.
             - positions (pd.Series): A series of trading signals over time 
               (1 for long spread, -1 for short spread, 0 for no position).
+            -Win_indexs (list): A list of the indexs of winning trades
+            -Loss_indexs (list): A list of the indexs of losing
+
     """
     
     positions = []
     position = 0  # 1 for long spread, -1 for short spread, 0 for no position.
+
+    # win_count = 0 #Count of winning trades
+    win_indexs = [] #Index of winning trades
+
+    # loss_count = 0 #Count of losing trades
+    loss_indexs = [] #Index of losing trades
     
-    for z in zscore:
+    for t, z in enumerate(zscore):
+
         # If we don't have a valid z-score (e.g., before the window is full), remain flat.
         if pd.isna(z):
             positions.append(0)
+
         else:
             if position == 0:
+
+                # No position -> check entry
                 if z >= entry_threshold:
-                    position = -1
+                    position = -1  # Short spread
                 elif z <= -entry_threshold:
-                    position = 1
-            elif position == 1 and z >= -exit_threshold:
-                position = 0
-            elif position == -1 and z <= exit_threshold:
-                position = 0
+                    position = +1  # Long spread
+
+            else:
+                # We have position = +1 or -1
+                if position == +1:  # Long spread
+                    # Normal exit condition => if z crosses above -exit_threshold
+                    if z >= -exit_threshold:
+                        position = 0
+                        win_indexs.append(t)
+
+                    # Stop-loss => if z <= -stop_loss_threshold
+                    elif z <= -stop_loss_threshold:
+                        position = 0
+                        loss_indexs.append(t)
+
+                elif position == -1:  # Short spread
+                    # Normal exit => if z crosses below exit_threshold
+                    if z <= exit_threshold:
+                        position = 0
+                        win_indexs.append(t)
+
+                    # Stop-loss => if z >= stop_loss_threshold
+                    elif z >= stop_loss_threshold:
+                        position = 0
+                        loss_indexs.append(t)
+
             positions.append(position)
+
+    #Compute number of wins and losses
+
+    num_wins = len(win_indexs)
+    num_losses = len(loss_indexs)
             
     positions = pd.Series(positions, index=spread_series.index)
 
-    return positions
+    print(f"Total trades closed: {num_wins+num_losses} (Wins={num_wins}, Losses={num_losses})")
+
+
+    return positions, win_indexs, loss_indexs
 
 # Example usage:
 # Suppose 'spread_series' is a pandas Series representing the spread between two assets,
 # and you wish to compute a rolling z-score over a window of 720 observations (e.g., roughly one month for hourly data).
 # zscore_series, positions_series = backtest_pair_rolling(spread_series, window_size=720, entry_threshold=1.0, exit_threshold=0.0)
 
-
-def backtest_pair(spread, entry_threshold=1.0, exit_threshold=0.0):
-    """
-    Generate trading signals based on the z-score of the spread and simulate positions over time.
-    
-    Parameters:
-        spread (pd.Series): The spread series between two asset prices.
-        entry_threshold (float, optional): The z-score level at which to enter a position. Default is 1.0.
-        exit_threshold (float, optional): The z-score level at which to exit a position. Default is 0.0.
-    
-    Returns:
-        tuple: A tuple containing:
-            - zscore (pd.Series): The z-score of the spread.
-            - positions (pd.Series): Series of trading positions over time 
-              (1 for long spread, -1 for short spread, 0 for no position).
-    """
-    # Compute z-score of the spread
-    spread_mean = spread.mean()
-    spread_std = spread.std()
-    zscore = (spread - spread_mean) / spread_std
-    
-    positions = []
-    position = 0  # 1 for long spread, -1 for short spread, 0 for no position.
-
-    #Count long and short positions
-
-    for z in zscore:
-        # Entry conditions: enter short if z > entry_threshold, long if z < -entry_threshold.
-        if position == 0:
-            if z >= entry_threshold:
-                position = -1
-            elif z <= -entry_threshold:
-                position = 1
-        # Exit conditions: exit when the z-score reverts close to 0.
-        elif position == 1 and z >= -exit_threshold:
-            position = 0
-        elif position == -1 and z <= exit_threshold:
-            position = 0
-        positions.append(position)
-    positions = pd.Series(positions, index=spread.index)
-    
-    return zscore, positions
 
 
 def simulate_true_strategy_rolling(S1, S2, positions, beta_series):
@@ -366,6 +366,8 @@ def plot_trading_simulation(
     plt.axhline(0, color='grey', linestyle='--', label='Mean')
     plt.axhline(1.0, color='green', linestyle='--', label='Upper threshold')
     plt.axhline(-1.0, color='green', linestyle='--', label='Lower threshold')
+    plt.axhline(2.0, color='red', linestyle='--', label='Stop Loss')
+    plt.axhline(-2.0, color='red', linestyle='--')
 
     # Example: add vertical dashed lines every 30 days if you want
     if pd.api.types.is_datetime64_any_dtype(zscore.index):
@@ -457,6 +459,47 @@ def plot_trading_simulation(
 #     return pnl, cum_pnl
 
 
+# def backtest_pair(spread, entry_threshold=1.0, exit_threshold=0.0):
+#     """
+#     Generate trading signals based on the z-score of the spread and simulate positions over time.
+    
+#     Parameters:
+#         spread (pd.Series): The spread series between two asset prices.
+#         entry_threshold (float, optional): The z-score level at which to enter a position. Default is 1.0.
+#         exit_threshold (float, optional): The z-score level at which to exit a position. Default is 0.0.
+    
+#     Returns:
+#         tuple: A tuple containing:
+#             - zscore (pd.Series): The z-score of the spread.
+#             - positions (pd.Series): Series of trading positions over time 
+#               (1 for long spread, -1 for short spread, 0 for no position).
+#     """
+#     # Compute z-score of the spread
+#     spread_mean = spread.mean()
+#     spread_std = spread.std()
+#     zscore = (spread - spread_mean) / spread_std
+    
+#     positions = []
+#     position = 0  # 1 for long spread, -1 for short spread, 0 for no position.
+
+#     #Count long and short positions
+
+#     for z in zscore:
+#         # Entry conditions: enter short if z > entry_threshold, long if z < -entry_threshold.
+#         if position == 0:
+#             if z >= entry_threshold:
+#                 position = -1
+#             elif z <= -entry_threshold:
+#                 position = 1
+#         # Exit conditions: exit when the z-score reverts close to 0.
+#         elif position == 1 and z >= -exit_threshold:
+#             position = 0
+#         elif position == -1 and z <= exit_threshold:
+#             position = 0
+#         positions.append(position)
+#     positions = pd.Series(positions, index=spread.index)
+    
+#     return zscore, positions
 
 # def simulate_true_strategy(S1, S2, positions, beta):
 #     """
