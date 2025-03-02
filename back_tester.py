@@ -2,32 +2,13 @@ import pandas as pd
 import numpy as np
 import statsmodels.api as sm
 import matplotlib.pyplot as plt
-# --------------------------
-# 3. Strategy Functions
-# --------------------------
 
-def compute_spread(S1, S2):
-    """
-    Compute the spread between two asset price series by regressing S1 on S2.
-    
-    Parameters:
-        S1 (pd.Series): Time series data for the first asset.
-        S2 (pd.Series): Time series data for the second asset.
-    
-    Returns:
-        tuple: A tuple containing:
-            - spread (pd.Series): The residual series (spread) obtained from the regression.
-            - beta (float): The hedge ratio (slope coefficient) from the regression.
-    """
 
-    #Note: 
-    # Although the full regression model is S1 = α + βS2 + ϵ, this function computes the spread without including the intercept α. In many cointegration or pairs trading setups, the focus is on the relative movement captured by β.
+#-------------------------------------------------------------------------------
+#                     Functions To Backtest Strategy
+#-------------------------------------------------------------------------------
 
-    S2_const = sm.add_constant(S2) #Adds a constant to the independent variable
-    model = sm.OLS(S1, S2_const).fit()
-    beta = model.params[1]
-    spread = S1 - beta * S2
-    return spread, beta
+
 
 def compute_spread_series(S1, S2, window_size=None):
     """
@@ -71,8 +52,8 @@ def compute_spread_series(S1, S2, window_size=None):
 
         #Record the intercept (alpha) and hedge ratio (beta) for the current window
         #Include alpha since Engle–Granger cointegration typically uses the intercept in the regression formula for the spread
-        alpha_t = model.params[0]
-        beta_t = model.params[1]
+        alpha_t = model.params.iloc[0]
+        beta_t = model.params.iloc[1]
         
         # Record the beta for the current time t
         beta_series.iloc[t] = beta_t
@@ -131,7 +112,7 @@ def compute_rolling_zscore(spread_series, window_size):
 # and you want to use a window of, say, 720 observations (e.g., roughly one month for hourly data):
 # zscore_series, roll_mean, roll_std = compute_rolling_zscore(spread_series, window_size=720)
 
-def backtest_pair_rolling(spread_series, window_size, entry_threshold=1.0, exit_threshold=0.0):
+def backtest_pair_rolling(spread_series, zscore, entry_threshold=1.0, exit_threshold=0.0):
     """
     Generate trading signals based on the rolling z-score of the spread series using a moving window.
     
@@ -159,8 +140,6 @@ def backtest_pair_rolling(spread_series, window_size, entry_threshold=1.0, exit_
             - positions (pd.Series): A series of trading signals over time 
               (1 for long spread, -1 for short spread, 0 for no position).
     """
-    # Compute rolling z-score using the provided helper function.
-    zscore, rolling_mean, rolling_std = compute_rolling_zscore(spread_series, window_size)
     
     positions = []
     position = 0  # 1 for long spread, -1 for short spread, 0 for no position.
@@ -182,7 +161,8 @@ def backtest_pair_rolling(spread_series, window_size, entry_threshold=1.0, exit_
             positions.append(position)
             
     positions = pd.Series(positions, index=spread_series.index)
-    return zscore, positions
+
+    return positions
 
 # Example usage:
 # Suppose 'spread_series' is a pandas Series representing the spread between two assets,
@@ -232,30 +212,6 @@ def backtest_pair(spread, entry_threshold=1.0, exit_threshold=0.0):
     
     return zscore, positions
 
-# def simulate_strategy(S1, S2, positions, beta):
-#     """
-#     Simulate the performance of a pairs trading strategy based on the computed positions.
-    
-#     Parameters:
-#         S1 (pd.Series): Time series data for the first asset.
-#         S2 (pd.Series): Time series data for the second asset.
-#         positions (pd.Series): Series of trading positions generated from the backtest (aligned with spread timestamps).
-#         beta (float): Hedge ratio computed from the cointegrating regression.
-    
-#     Returns:
-#         tuple: A tuple containing:
-#             - pnl (pd.Series): Daily profit and loss (PnL) of the strategy.
-#             - cum_pnl (pd.Series): Cumulative PnL over time.
-#     """
-#     # Recompute spread using the hedge ratio
-#     spread, _ = compute_spread(S1, S2)
-#     # Daily change in spread (price difference)
-#     spread_diff = spread.diff()
-#     # Calculate PnL: shift positions to avoid lookahead bias
-#     pnl = positions.shift(1) * spread_diff #The pnl at time t is the position at time t-1 times the change in spread from t-1 to t
-#     pnl = pnl.fillna(0)
-#     cum_pnl = pnl.cumsum()
-#     return pnl, cum_pnl
 
 def simulate_true_strategy_rolling(S1, S2, positions, beta_series):
     """
@@ -310,57 +266,248 @@ def simulate_true_strategy_rolling(S1, S2, positions, beta_series):
 
 
 
-
-def simulate_true_strategy(S1, S2, positions, beta):
+def plot_trading_simulation(
+    S1, 
+    S2, 
+    sym1, 
+    sym2, 
+    zscore, 
+    positions, 
+    cum_pnl,
+    window_start=None,
+    window_end=None
+): 
     """
-    Simulate the true performance of a pairs trading strategy by calculating the profit and loss
-    from the individual asset positions when a trade is active.
+    Plot the trading simulation results including stock prices, z-score, trading positions, 
+    and cumulative PnL. Adds the option to zoom in on a specific window of data 
+    by specifying window_start and window_end.
 
-    In this strategy:
-      - A long spread (position = +1) means:
-          * Long 1 unit of S1
-          * Short beta units of S2
-      - A short spread (position = -1) means:w
-          * Short 1 unit of S1
-          * Long beta units of S2
-
-    The profit or loss from a trade between time t-1 and t is computed as:
-        For a long spread:
-            pnl = (S1[t] - S1[t-1]) - beta * (S2[t] - S2[t-1])
-        For a short spread:
-            pnl = -(S1[t] - S1[t-1]) + beta * (S2[t] - S2[t-1])
+    If window_start and window_end are provided, all series are sliced to that time range. 
+    Otherwise, the full range is plotted.
     
-    We use the previous period's position (i.e. positions.shift(1)) to avoid lookahead bias.
+    In addition to plotting the z-score and positions, this function marks on the stock price
+    plots where trades were initiated.
 
+    For a long spread (positions = +1):
+        - S1 is long (green upward marker)
+        - S2 is short (red downward marker)
+    For a short spread (positions = -1):
+        - S1 is short (red downward marker)
+        - S2 is long (green upward marker)
+    
     Parameters:
-        S1 (pd.Series): Time series of asset 1 prices.
-        S2 (pd.Series): Time series of asset 2 prices.
-        positions (pd.Series): Trading signals (1 for long spread, -1 for short spread, 0 for no position).
-        beta (float): Hedge ratio estimated from the cointegrating regression.
-
-    Returns:
-        tuple: A tuple containing:
-            - pnl (pd.Series): The period-by-period profit and loss of the strategy.
-            - cum_pnl (pd.Series): The cumulative profit and loss over time.
+        S1 (pd.Series): Time series data for the first asset.
+        S2 (pd.Series): Time series data for the second asset.
+        sym1 (str): Name/symbol of the first asset.
+        sym2 (str): Name/symbol of the second asset.
+        zscore (pd.Series): The z-score of the spread.
+        positions (pd.Series): Trading signals generated from the backtest 
+                               (1 for long, -1 for short, 0 for no position).
+        cum_pnl (pd.Series): Cumulative profit and loss (PnL) of the strategy.
+        window_start (object, optional): Start of the time slice (timestamp or index label). 
+                                         If None, uses the start of the entire data.
+        window_end (object, optional): End of the time slice (timestamp or index label).
+                                       If None, uses the end of the entire data.
     """
-    # Calculate the changes in asset prices
-    delta_S1 = S1.diff()
-    delta_S2 = S2.diff()
+
+    # 1) If window_start or window_end is given, slice all series to zoom in
+    if window_start is not None or window_end is not None:
+        S1 = S1.loc[window_start:window_end]
+        S2 = S2.loc[window_start:window_end]
+        zscore = zscore.loc[window_start:window_end]
+        positions = positions.loc[window_start:window_end]
+        cum_pnl = cum_pnl.loc[window_start:window_end]
+
+    # Identify trade entry points: where the position changes from 0 to nonzero.
+    trade_entries = positions[(positions != 0) & (positions.shift(1) == 0)]
+    # Separate long and short entries.
+    long_entries = trade_entries[trade_entries == 1]
+    short_entries = trade_entries[trade_entries == -1]
+
+    print(f"Long Entries: {len(long_entries)}, Short Entries: {len(short_entries)}")
+        
+    plt.figure(figsize=(15, 20))
+
+    # Subplot 1: Plot S1 and S2 on separate y-axes, and add trade markers.
+    plt.subplot(5, 1, 1)
+    ax1 = plt.gca()
+    ax2 = ax1.twinx()
+
+    ax1.plot(S1, label=sym1, color='blue')
+    ax2.plot(S2, label=sym2, color='red')
+
+    ax1.set_ylabel(sym1, color='blue')
+    ax2.set_ylabel(sym2, color='red')
+    plt.title(f"Stock Prices: {sym1} and {sym2}")
     
-    # Shift positions by one period to ensure that today's position is applied to tomorrow's returns
-    shifted_positions = positions.shift(1) #You generate a trading signal based on information up to time t−1 and then use that signal to trade during the period from t−1 to t.
+    # Add markers for trade entries on S1 (ax1):
+    ax1.scatter(long_entries.index, S1.loc[long_entries.index], 
+                marker='^', color='green', s=100, label='S1 Long Entry (Long Spread)')
+    ax1.scatter(short_entries.index, S1.loc[short_entries.index],
+                marker='v', color='red', s=100, label='S1 Short Entry (Short Spread)')
     
-    # Compute profit and loss:
-    # For a long spread (position = 1): pnl = (ΔS1) - beta * (ΔS2)
-    # For a short spread (position = -1): pnl = -(ΔS1) + beta * (ΔS2)
-    # This formula works for both cases when multiplied by the signal (shifted_positions).
-    pnl = shifted_positions * (delta_S1 - beta * delta_S2)
-    pnl = pnl.fillna(0)
+    # Add markers for trade entries on S2 (ax2):
+    # For long spread, S2 is short: red downward triangle.
+    ax2.scatter(long_entries.index, S2.loc[long_entries.index],
+                marker='v', color='red', s=100, label='S2 Short Entry (Long Spread)')
+    # For short spread, S2 is long: green upward triangle.
+    ax2.scatter(short_entries.index, S2.loc[short_entries.index],
+                marker='^', color='green', s=100, label='S2 Long Entry (Short Spread)')
+
+    # Vertical lines at each trade entry
+    for entry in long_entries.index:
+        plt.axvline(entry, color='green', linestyle='--')
+    for entry in short_entries.index:
+        plt.axvline(entry, color='red', linestyle='--')
+
+    # Subplot 2: Plot z-score with thresholds and markers.
+    plt.subplot(5, 1, 2)
+    plt.plot(zscore, label='Z-Score')
+    plt.axhline(0, color='grey', linestyle='--', label='Mean')
+    plt.axhline(1.0, color='green', linestyle='--', label='Upper threshold')
+    plt.axhline(-1.0, color='green', linestyle='--', label='Lower threshold')
+
+    # Example: add vertical dashed lines every 30 days if you want
+    if pd.api.types.is_datetime64_any_dtype(zscore.index):
+        boundaries = pd.date_range(start=zscore.index[0], end=zscore.index[-1], freq='30D')
+        for boundary in boundaries:
+            plt.axvline(boundary, color='black', linestyle=':', linewidth=1, label='30-Day Boundary')
+        # Remove duplicate labels
+        handles, labels = plt.gca().get_legend_handles_labels()
+        unique = dict(zip(labels, handles))
+        plt.legend(unique.values(), unique.keys())
+    else:
+        # If not datetime, just show a normal legend
+        plt.legend()
+
+    plt.title("Z-Score of Spread")
+    plt.scatter(long_entries.index, zscore.loc[long_entries.index], marker='^', 
+                color='green', s=100, label='Long Entry')
+    plt.scatter(short_entries.index, zscore.loc[short_entries.index], marker='v', 
+                color='red', s=100, label='Short Entry')
+
+    # Subplot 3: Plot trading positions.
+    plt.subplot(5, 1, 3)
+    plt.plot(positions, label='Positions', drawstyle='steps-mid')
+    plt.title("Trading Positions")
+    plt.legend()
+
+    # Subplot 4: Plot cumulative PnL.
+    plt.subplot(5, 1, 4)
+    plt.plot(cum_pnl, label='Cumulative PnL')
+    plt.title("Strategy Performance (Cumulative PnL)")
+    plt.legend()
     
-    # Compute cumulative profit and loss
-    cum_pnl = pnl.cumsum()
+    plt.tight_layout()
+    plt.show()
+
+#-------------------------------------------------------------------------------
+#                      Old Functions (Kept for Reference)
+#-------------------------------------------------------------------------------
+
+
+# def compute_spread(S1, S2):
+#     """
+#     Compute the spread between two asset price series by regressing S1 on S2.
     
-    return pnl, cum_pnl
+#     Parameters:
+#         S1 (pd.Series): Time series data for the first asset.
+#         S2 (pd.Series): Time series data for the second asset.
+    
+#     Returns:
+#         tuple: A tuple containing:
+#             - spread (pd.Series): The residual series (spread) obtained from the regression.
+#             - beta (float): The hedge ratio (slope coefficient) from the regression.
+#     """
+
+#     #Note: 
+#     #Full regression model is S1 = α + βS2 + ϵ,
+
+#     S2_const = sm.add_constant(S2) #Adds a constant to the independent variable
+#     model = sm.OLS(S1, S2_const).fit()
+#     beta = model.params[1]
+#     alpha = model.params[0]
+#     spread = S1 - alpha - beta * S2
+#     return spread, beta
+
+
+# def simulate_strategy(S1, S2, positions, beta):
+#     """
+#     Simulate the performance of a pairs trading strategy based on the computed positions.
+    
+#     Parameters:
+#         S1 (pd.Series): Time series data for the first asset.
+#         S2 (pd.Series): Time series data for the second asset.
+#         positions (pd.Series): Series of trading positions generated from the backtest (aligned with spread timestamps).
+#         beta (float): Hedge ratio computed from the cointegrating regression.
+    
+#     Returns:
+#         tuple: A tuple containing:
+#             - pnl (pd.Series): Daily profit and loss (PnL) of the strategy.
+#             - cum_pnl (pd.Series): Cumulative PnL over time.
+#     """
+#     # Recompute spread using the hedge ratio
+#     spread, _ = compute_spread(S1, S2)
+#     # Daily change in spread (price difference)
+#     spread_diff = spread.diff()
+#     # Calculate PnL: shift positions to avoid lookahead bias
+#     pnl = positions.shift(1) * spread_diff #The pnl at time t is the position at time t-1 times the change in spread from t-1 to t
+#     pnl = pnl.fillna(0)
+#     cum_pnl = pnl.cumsum()
+#     return pnl, cum_pnl
+
+
+
+# def simulate_true_strategy(S1, S2, positions, beta):
+#     """
+#     Simulate the true performance of a pairs trading strategy by calculating the profit and loss
+#     from the individual asset positions when a trade is active.
+
+#     In this strategy:
+#       - A long spread (position = +1) means:
+#           * Long 1 unit of S1
+#           * Short beta units of S2
+#       - A short spread (position = -1) means:w
+#           * Short 1 unit of S1
+#           * Long beta units of S2
+
+#     The profit or loss from a trade between time t-1 and t is computed as:
+#         For a long spread:
+#             pnl = (S1[t] - S1[t-1]) - beta * (S2[t] - S2[t-1])
+#         For a short spread:
+#             pnl = -(S1[t] - S1[t-1]) + beta * (S2[t] - S2[t-1])
+    
+#     We use the previous period's position (i.e. positions.shift(1)) to avoid lookahead bias.
+
+#     Parameters:
+#         S1 (pd.Series): Time series of asset 1 prices.
+#         S2 (pd.Series): Time series of asset 2 prices.
+#         positions (pd.Series): Trading signals (1 for long spread, -1 for short spread, 0 for no position).
+#         beta (float): Hedge ratio estimated from the cointegrating regression.
+
+#     Returns:
+#         tuple: A tuple containing:
+#             - pnl (pd.Series): The period-by-period profit and loss of the strategy.
+#             - cum_pnl (pd.Series): The cumulative profit and loss over time.
+#     """
+#     # Calculate the changes in asset prices
+#     delta_S1 = S1.diff()
+#     delta_S2 = S2.diff()
+    
+#     # Shift positions by one period to ensure that today's position is applied to tomorrow's returns
+#     shifted_positions = positions.shift(1) #You generate a trading signal based on information up to time t−1 and then use that signal to trade during the period from t−1 to t.
+    
+#     # Compute profit and loss:
+#     # For a long spread (position = 1): pnl = (ΔS1) - beta * (ΔS2)
+#     # For a short spread (position = -1): pnl = -(ΔS1) + beta * (ΔS2)
+#     # This formula works for both cases when multiplied by the signal (shifted_positions).
+#     pnl = shifted_positions * (delta_S1 - beta * delta_S2)
+#     pnl = pnl.fillna(0)
+    
+#     # Compute cumulative profit and loss
+#     cum_pnl = pnl.cumsum()
+    
+#     return pnl, cum_pnl
 
 # Example usage:
 # Assume S1 and S2 are the price series of two cryptocurrencies,
@@ -529,141 +676,4 @@ def simulate_true_strategy(S1, S2, positions, beta):
 
 
 
-
-
-
-def plot_trading_simulation(
-    S1, 
-    S2, 
-    sym1, 
-    sym2, 
-    zscore, 
-    positions, 
-    cum_pnl,
-    window_start=None,
-    window_end=None
-): 
-    """
-    Plot the trading simulation results including stock prices, z-score, trading positions, 
-    and cumulative PnL. Adds the option to zoom in on a specific window of data 
-    by specifying window_start and window_end.
-
-    If window_start and window_end are provided, all series are sliced to that time range. 
-    Otherwise, the full range is plotted.
-    
-    In addition to plotting the z-score and positions, this function marks on the stock price
-    plots where trades were initiated.
-
-    For a long spread (positions = +1):
-        - S1 is long (green upward marker)
-        - S2 is short (red downward marker)
-    For a short spread (positions = -1):
-        - S1 is short (red downward marker)
-        - S2 is long (green upward marker)
-    
-    Parameters:
-        S1 (pd.Series): Time series data for the first asset.
-        S2 (pd.Series): Time series data for the second asset.
-        sym1 (str): Name/symbol of the first asset.
-        sym2 (str): Name/symbol of the second asset.
-        zscore (pd.Series): The z-score of the spread.
-        positions (pd.Series): Trading signals generated from the backtest 
-                               (1 for long, -1 for short, 0 for no position).
-        cum_pnl (pd.Series): Cumulative profit and loss (PnL) of the strategy.
-        window_start (object, optional): Start of the time slice (timestamp or index label). 
-                                         If None, uses the start of the entire data.
-        window_end (object, optional): End of the time slice (timestamp or index label).
-                                       If None, uses the end of the entire data.
-    """
-
-    # 1) If window_start or window_end is given, slice all series to zoom in
-    if window_start is not None or window_end is not None:
-        S1 = S1.loc[window_start:window_end]
-        S2 = S2.loc[window_start:window_end]
-        zscore = zscore.loc[window_start:window_end]
-        positions = positions.loc[window_start:window_end]
-        cum_pnl = cum_pnl.loc[window_start:window_end]
-
-    # Identify trade entry points: where the position changes from 0 to nonzero.
-    trade_entries = positions[(positions != 0) & (positions.shift(1) == 0)]
-    # Separate long and short entries.
-    long_entries = trade_entries[trade_entries == 1]
-    short_entries = trade_entries[trade_entries == -1]
-
-    print(f"Long Entries: {len(long_entries)}, Short Entries: {len(short_entries)}")
-        
-    plt.figure(figsize=(15, 20))
-
-    # Subplot 1: Plot S1 and S2 on separate y-axes, and add trade markers.
-    plt.subplot(5, 1, 1)
-    ax1 = plt.gca()
-    ax2 = ax1.twinx()
-
-    ax1.plot(S1, label=sym1, color='blue')
-    ax2.plot(S2, label=sym2, color='red')
-
-    ax1.set_ylabel(sym1, color='blue')
-    ax2.set_ylabel(sym2, color='red')
-    plt.title(f"Stock Prices: {sym1} and {sym2}")
-    
-    # Add markers for trade entries on S1 (ax1):
-    ax1.scatter(long_entries.index, S1.loc[long_entries.index], 
-                marker='^', color='green', s=100, label='S1 Long Entry (Long Spread)')
-    ax1.scatter(short_entries.index, S1.loc[short_entries.index],
-                marker='v', color='red', s=100, label='S1 Short Entry (Short Spread)')
-    
-    # Add markers for trade entries on S2 (ax2):
-    # For long spread, S2 is short: red downward triangle.
-    ax2.scatter(long_entries.index, S2.loc[long_entries.index],
-                marker='v', color='red', s=100, label='S2 Short Entry (Long Spread)')
-    # For short spread, S2 is long: green upward triangle.
-    ax2.scatter(short_entries.index, S2.loc[short_entries.index],
-                marker='^', color='green', s=100, label='S2 Long Entry (Short Spread)')
-
-    # Vertical lines at each trade entry
-    for entry in long_entries.index:
-        plt.axvline(entry, color='green', linestyle='--')
-    for entry in short_entries.index:
-        plt.axvline(entry, color='red', linestyle='--')
-
-    # Subplot 2: Plot z-score with thresholds and markers.
-    plt.subplot(5, 1, 2)
-    plt.plot(zscore, label='Z-Score')
-    plt.axhline(0, color='grey', linestyle='--', label='Mean')
-    plt.axhline(1.0, color='green', linestyle='--', label='Upper threshold')
-    plt.axhline(-1.0, color='green', linestyle='--', label='Lower threshold')
-
-    # Example: add vertical dashed lines every 30 days if you want
-    if pd.api.types.is_datetime64_any_dtype(zscore.index):
-        boundaries = pd.date_range(start=zscore.index[0], end=zscore.index[-1], freq='30D')
-        for boundary in boundaries:
-            plt.axvline(boundary, color='black', linestyle=':', linewidth=1, label='30-Day Boundary')
-        # Remove duplicate labels
-        handles, labels = plt.gca().get_legend_handles_labels()
-        unique = dict(zip(labels, handles))
-        plt.legend(unique.values(), unique.keys())
-    else:
-        # If not datetime, just show a normal legend
-        plt.legend()
-
-    plt.title("Z-Score of Spread")
-    plt.scatter(long_entries.index, zscore.loc[long_entries.index], marker='^', 
-                color='green', s=100, label='Long Entry')
-    plt.scatter(short_entries.index, zscore.loc[short_entries.index], marker='v', 
-                color='red', s=100, label='Short Entry')
-
-    # Subplot 3: Plot trading positions.
-    plt.subplot(5, 1, 3)
-    plt.plot(positions, label='Positions', drawstyle='steps-mid')
-    plt.title("Trading Positions")
-    plt.legend()
-
-    # Subplot 4: Plot cumulative PnL.
-    plt.subplot(5, 1, 4)
-    plt.plot(cum_pnl, label='Cumulative PnL')
-    plt.title("Strategy Performance (Cumulative PnL)")
-    plt.legend()
-    
-    plt.tight_layout()
-    plt.show()
 
