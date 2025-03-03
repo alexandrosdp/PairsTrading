@@ -295,7 +295,97 @@ def simulate_true_strategy_rolling(S1, S2, positions, beta_series):
     return pnl, cum_pnl
 
 
+def simulate_strategy_pnl(
+    S1, 
+    S2, 
+    positions, 
+    beta_series=None, 
+    initial_capital=1000.0
+):
+    """
+    Compute daily/cumulative PnL for a pairs strategy that uses a hedge ratio (beta).
 
+    If beta_series is None, we assume beta=1 at all times.
+    Otherwise, beta_series[t] is the ratio for day t: 
+        e.g. if position=+1, we buy shares in S1, 
+        short beta_series[t]*shares_of_S2.
+
+    Args:
+        S1 (pd.Series): Price series for S1
+        S2 (pd.Series): Price series for S2
+        positions (pd.Series): 0=flat, +1=long spread, -1=short spread
+        beta_series (pd.Series or float): The hedge ratio(s). If None => 1.0
+        initial_capital (float): e.g. 1000 EUR
+
+    Returns:
+        daily_pnl (pd.Series)
+        cum_pnl  (pd.Series)
+        cum_pnl_pct (pd.Series)
+    """
+
+    # If no beta_series, use 1.0
+    if beta_series is None:
+        # Create a series of 1.0 with same index
+        beta_series = pd.Series(1.0, index=S1.index)
+
+    # Convert to arrays for speed if you prefer
+    daily_pnl = []
+    # We'll iterate from i=1..end to compute daily PnL from i-1 -> i
+    for i in range(1, len(S1)):
+        prev_pos = positions.iloc[i-1]
+        if prev_pos == 0:
+            # no position => daily PnL=0
+            daily_pnl.append(0.0)
+            continue
+        
+        # Price changes
+        dS1 = S1.iloc[i] - S1.iloc[i-1]
+        dS2 = S2.iloc[i] - S2.iloc[i-1]
+
+        # The ratio for day i-1
+        beta = beta_series.iloc[i-1]
+
+        # number of shares for each leg
+        # total capital is initial_capital. We won't re-invest daily
+        # Let's define a function that for a +1 spread,
+        # we put half capital in S1, half in S2, but scale S2 by beta.
+        # One approach:
+        #   Notional_S1 = initial_capital / (1+beta)
+        #   Notional_S2 = beta * Notional_S1 = (beta/(1+beta))*initial_capital
+        # Then shares_S1 = Notional_S1 / price_of_S1
+        #     shares_S2 = Notional_S2 / price_of_S2
+        # if pos=+1 => we are long S1, short S2
+        # if pos=-1 => we are short S1, long S2
+
+        # compute these for day i-1
+        #This determines how we allocate our capital between the two assets
+        Notional_S1 = initial_capital / (1.0 + beta)
+        Notional_S2 = beta * Notional_S1
+
+        # share counts, based on the prices from i-1
+        # We are using the prices from i-1 to determine the number of shares we would have bought/sold
+        shares_S1 = Notional_S1 / S1.iloc[i-1]
+        shares_S2 = Notional_S2 / S2.iloc[i-1]
+
+        # now the PnL depends on whether pos=+1 or -1
+        if prev_pos == +1:
+            # +1 => long S1 => daily PnL from S1 is shares_S1 * dS1
+            #        short S2 => daily PnL from S2 is shares_S2 * (-dS2)
+            day_pnl = shares_S1 * dS1 + shares_S2 * (-dS2)
+        else:
+            # prev_pos == -1 => short S1 => daily PnL from S1 => shares_S1 * (-dS1)
+            #                => long S2 => shares_S2 * dS2
+            day_pnl = shares_S1 * (-dS1) + shares_S2 * dS2
+
+        daily_pnl.append(day_pnl)
+
+    # daily_pnl is one element shorter than S1, so let's align indexing
+    daily_pnl_series = pd.Series([0.0] + daily_pnl, index=S1.index)
+
+    cum_pnl_series = daily_pnl_series.cumsum()
+    cum_pnl_pct_series = (cum_pnl_series / initial_capital) * 100.0
+
+    return daily_pnl_series, cum_pnl_series, cum_pnl_pct_series
 
 
 def plot_trading_simulation(
