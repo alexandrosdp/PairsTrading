@@ -38,6 +38,7 @@ def compute_spread_series(S1, S2, window_size=None):
     
     # Prepare empty series for beta and spread, with the same index as S1
     beta_series = pd.Series(index=S1.index, dtype=float)
+    alpha_series = pd.Series(index=S1.index, dtype=float)
     spread_series = pd.Series(index=S1.index, dtype=float)
     
     # Loop over the time series, starting from the first time index where a full window is available.
@@ -57,11 +58,12 @@ def compute_spread_series(S1, S2, window_size=None):
         
         # Record the beta for the current time t
         beta_series.iloc[t] = beta_t
+        alpha_series.iloc[t] = alpha_t
 
         # Compute the spread at time t using the dynamically estimated beta
         spread_series.iloc[t] = S1.iloc[t] - alpha_t - beta_t * S2.iloc[t]
 
-    return spread_series, beta_series
+    return spread_series, beta_series, alpha_series
 
 def compute_rolling_zscore(spread_series, window_size):
     
@@ -105,6 +107,9 @@ def compute_rolling_zscore(spread_series, window_size):
     # Compute the rolling z-score
     zscore = (spread_series - rolling_mean) / rolling_std #The z-score at time t is calculated as: zscore_t = (spread_series_t - rolling_mean_t) / rolling_std_t
     
+    #Ensure index of zscore is a datetime index
+    zscore.index = pd.to_datetime(zscore.index)
+
     return zscore, rolling_mean, rolling_std
 
 # Example usage:
@@ -292,6 +297,7 @@ def simulate_true_strategy_rolling(S1, S2, positions, beta_series):
 
 
 
+
 def plot_trading_simulation(
     S1, 
     S2, 
@@ -341,6 +347,7 @@ def plot_trading_simulation(
         win_indexs = []
     if loss_indexs is None:
         loss_indexs = []
+
 
     # Slice data if window bounds are provided
     if window_start is not None or window_end is not None:
@@ -439,7 +446,7 @@ def plot_trading_simulation(
 
     # Subplot 2: Z-score
     plt.subplot(5, 1, 2)
-    plt.plot(zscore, label='Z-Score')
+    plt.plot(zscore, label='Z-Score', marker='o', color='purple')
     plt.axhline(0, color='grey', linestyle='--', label='Mean')
     plt.axhline(1.0, color='green', linestyle='--', label='±1.0 Entry threshold')
     plt.axhline(-1.0, color='green', linestyle='--')
