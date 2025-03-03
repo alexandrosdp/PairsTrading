@@ -112,7 +112,7 @@ def compute_rolling_zscore(spread_series, window_size):
 # and you want to use a window of, say, 720 observations (e.g., roughly one month for hourly data):
 # zscore_series, roll_mean, roll_std = compute_rolling_zscore(spread_series, window_size=720)
 
-def backtest_pair_rolling(spread_series, zscore, entry_threshold=1.0, exit_threshold=0.0, stop_loss_threshold=2.0):
+def backtest_pair_rolling(spread_series, zscore, entry_threshold=1.0, exit_threshold=0.1, stop_loss_threshold=2.0):
     """
     Generate trading signals based on the rolling z-score of the spread series using a moving window.
     
@@ -152,56 +152,81 @@ def backtest_pair_rolling(spread_series, zscore, entry_threshold=1.0, exit_thres
 
     # loss_count = 0 #Count of losing trades
     loss_indexs = [] #Index of losing trades
+
+    # When we get stopped out, we set stop_out=True and remain out until
+    # |z| <= exit_threshold again
+    stop_out = False
     
     for t, z in enumerate(zscore):
 
         # If we don't have a valid z-score (e.g., before the window is full), remain flat.
         if pd.isna(z):
+            #print("INVALID Z-SCORE DETECTED")
             positions.append(0)
+            continue
+        
+        #If we are not currentlty in a position
+        if position == 0:
+                
+                #If we are stopped out, we remain flat until |z| <= exit_threshold
+                if stop_out:
 
+                    if abs(z) <= exit_threshold:
+
+                         # Once z <= exit_threshold, we allow new trades again
+                        stop_out = False
+
+                    # remain flat
+                    positions.append(0)
+                    continue
+
+                #If we are not stopped out, check for entry
+                else:
+                    # No position -> check entry
+                    if z >= entry_threshold:
+                        position = -1  # Short spread
+                    elif z <= -entry_threshold:
+                        position = +1  # Long spread
+
+
+        #If we are currently in a position
         else:
-            if position == 0:
 
-                # No position -> check entry
-                if z >= entry_threshold:
-                    position = -1  # Short spread
-                elif z <= -entry_threshold:
-                    position = +1  # Long spread
+            if position == +1:  # Long spread
+                # Normal exit condition => if z crosses above -exit_threshold
+                if z >= -exit_threshold:
+                    position = 0
+                    win_indexs.append(zscore.index[t]) #Appends actual datetime index of the winning trade
 
-            else:
-                # We have position = +1 or -1
-                if position == +1:  # Long spread
-                    # Normal exit condition => if z crosses above -exit_threshold
-                    if z >= -exit_threshold:
-                        position = 0
-                        win_indexs.append(t)
+                # Stop-loss => if z <= -stop_loss_threshold
+                elif z <= -stop_loss_threshold:
+                    position = 0
+                    loss_indexs.append(zscore.index[t])
+                    stop_out = True
 
-                    # Stop-loss => if z <= -stop_loss_threshold
-                    elif z <= -stop_loss_threshold:
-                        position = 0
-                        loss_indexs.append(t)
+            elif position == -1:  # Short spread
+                # Normal exit => if z crosses below exit_threshold
+                if z <= exit_threshold:
+                    position = 0
+                    win_indexs.append(zscore.index[t])
 
-                elif position == -1:  # Short spread
-                    # Normal exit => if z crosses below exit_threshold
-                    if z <= exit_threshold:
-                        position = 0
-                        win_indexs.append(t)
+                # Stop-loss => if z >= stop_loss_threshold
+                elif z >= stop_loss_threshold:
+                    position = 0
+                    loss_indexs.append(zscore.index[t])
+                    stop_out
 
-                    # Stop-loss => if z >= stop_loss_threshold
-                    elif z >= stop_loss_threshold:
-                        position = 0
-                        loss_indexs.append(t)
+        positions.append(position)
 
-            positions.append(position)
-
-    #Compute number of wins and losses
-
-    num_wins = len(win_indexs)
-    num_losses = len(loss_indexs)
             
     positions = pd.Series(positions, index=spread_series.index)
 
+    #Compute number of wins and losses
+    num_wins = len(win_indexs)
+    num_losses = len(loss_indexs)
+
     print(f"Total trades closed: {num_wins+num_losses} (Wins={num_wins}, Losses={num_losses})")
+    print(f"Win rate: {num_wins/(num_wins+num_losses):.2f}")
 
 
     return positions, win_indexs, loss_indexs
@@ -266,6 +291,7 @@ def simulate_true_strategy_rolling(S1, S2, positions, beta_series):
 
 
 
+
 def plot_trading_simulation(
     S1, 
     S2, 
@@ -274,61 +300,102 @@ def plot_trading_simulation(
     zscore, 
     positions, 
     cum_pnl,
+    win_indexs=None,     # list of indices where trades ended in a "win"
+    loss_indexs=None,    # list of indices where trades ended in a "loss"
     window_start=None,
     window_end=None
 ): 
     """
-    Plot the trading simulation results including stock prices, z-score, trading positions, 
-    and cumulative PnL. Adds the option to zoom in on a specific window of data 
-    by specifying window_start and window_end.
-
-    If window_start and window_end are provided, all series are sliced to that time range. 
-    Otherwise, the full range is plotted.
+    Plot the trading simulation results including:
+      - Stock prices (S1, S2)
+      - Z-score
+      - Trading positions
+      - Cumulative PnL
     
-    In addition to plotting the z-score and positions, this function marks on the stock price
-    plots where trades were initiated.
+    Also highlights periods for each trade in light green (if it ended in a win)
+    or light red (if it ended in a loss), and draws black vertical lines at the
+    start and end of each trade to "border" those highlights.
 
-    For a long spread (positions = +1):
-        - S1 is long (green upward marker)
-        - S2 is short (red downward marker)
-    For a short spread (positions = -1):
-        - S1 is short (red downward marker)
-        - S2 is long (green upward marker)
-    
-    Parameters:
-        S1 (pd.Series): Time series data for the first asset.
-        S2 (pd.Series): Time series data for the second asset.
-        sym1 (str): Name/symbol of the first asset.
-        sym2 (str): Name/symbol of the second asset.
-        zscore (pd.Series): The z-score of the spread.
-        positions (pd.Series): Trading signals generated from the backtest 
-                               (1 for long, -1 for short, 0 for no position).
-        cum_pnl (pd.Series): Cumulative profit and loss (PnL) of the strategy.
-        window_start (object, optional): Start of the time slice (timestamp or index label). 
-                                         If None, uses the start of the entire data.
-        window_end (object, optional): End of the time slice (timestamp or index label).
-                                       If None, uses the end of the entire data.
+    For a long spread (positions=+1):
+        - S1 is long (green '^' marker)
+        - S2 is short (red 'v' marker)
+    For a short spread (positions=-1):
+        - S1 is short (red 'v' marker)
+        - S2 is long (green '^' marker)
+
+    Args:
+        S1 (pd.Series): Price series for the first asset.
+        S2 (pd.Series): Price series for the second asset.
+        sym1 (str): Label for the first asset in plots.
+        sym2 (str): Label for the second asset in plots.
+        zscore (pd.Series): The rolling z-score of the spread.
+        positions (pd.Series): 0=flat, +1=long spread, -1=short spread.
+        cum_pnl (pd.Series): Cumulative PnL of the strategy.
+        win_indexs (list): Indices where trades ended in a win.
+        loss_indexs (list): Indices where trades ended in a loss.
+        window_start, window_end: Optional start/end for slicing the data.
     """
 
-    # 1) If window_start or window_end is given, slice all series to zoom in
+    # Default empty lists if none provided
+    if win_indexs is None:
+        win_indexs = []
+    if loss_indexs is None:
+        loss_indexs = []
+
+    # Slice data if window bounds are provided
     if window_start is not None or window_end is not None:
         S1 = S1.loc[window_start:window_end]
         S2 = S2.loc[window_start:window_end]
         zscore = zscore.loc[window_start:window_end]
         positions = positions.loc[window_start:window_end]
         cum_pnl = cum_pnl.loc[window_start:window_end]
+    
+    win_indexs = [idx for idx in win_indexs if idx in positions.index]
+    loss_indexs = [idx for idx in loss_indexs if idx in positions.index]
 
-    # Identify trade entry points: where the position changes from 0 to nonzero.
+    # Identify trade entry points: position changes from 0 to ±1
     trade_entries = positions[(positions != 0) & (positions.shift(1) == 0)]
-    # Separate long and short entries.
     long_entries = trade_entries[trade_entries == 1]
     short_entries = trade_entries[trade_entries == -1]
 
-    print(f"Long Entries: {len(long_entries)}, Short Entries: {len(short_entries)}")
-        
+    print(f"Long Entries In Window: {len(long_entries)}, Short Entries In Window: {len(short_entries)}")
+    print(f"Wins In Window: {len(win_indexs)}, Losses In Window: {len(loss_indexs)}")
+
+    # Determine intervals for each trade: from trade open to trade close
+    trades = []
+    current_pos = 0
+    trade_start = None
+
+    # We'll parse the positions series to find (start_idx, end_idx, outcome)
+    for i in range(len(positions)):
+        idx = positions.index[i]
+        pos = positions.iloc[i]
+        prev_pos = positions.iloc[i-1] if i > 0 else 0
+
+        # If we just opened a trade
+        if pos != 0 and prev_pos == 0:
+            trade_start = idx
+            current_pos = pos
+
+        # If we just closed a trade
+        if pos == 0 and prev_pos != 0:
+            trade_end = idx
+            # Determine outcome
+            if trade_end in win_indexs:
+                outcome = "win"
+            elif trade_end in loss_indexs:
+                outcome = "loss"
+            else:
+                outcome = "unknown"  # e.g. normal exit or partial data
+
+            trades.append((trade_start, trade_end, outcome))
+            trade_start = None
+            current_pos = 0
+
+    # Plot figure
     plt.figure(figsize=(15, 20))
 
-    # Subplot 1: Plot S1 and S2 on separate y-axes, and add trade markers.
+    # Subplot 1: S1 & S2 with trade intervals & markers
     plt.subplot(5, 1, 1)
     ax1 = plt.gca()
     ax2 = ax1.twinx()
@@ -339,48 +406,45 @@ def plot_trading_simulation(
     ax1.set_ylabel(sym1, color='blue')
     ax2.set_ylabel(sym2, color='red')
     plt.title(f"Stock Prices: {sym1} and {sym2}")
-    
-    # Add markers for trade entries on S1 (ax1):
+
+    # Highlight the entire time region from trade_start to trade_end
+    # in lightgreen for wins, lightcoral for losses.
+    # Additionally, draw black vertical lines at the start and end.
+    for (start_idx, end_idx, outcome) in trades:
+        if start_idx is None or end_idx is None:
+            continue
+        if outcome == "win":
+            ax1.axvspan(start_idx, end_idx, facecolor='lightgreen', alpha=0.2)
+        elif outcome == "loss":
+            ax1.axvspan(start_idx, end_idx, facecolor='lightcoral', alpha=0.2)
+        else:
+            # If you want to highlight "unknown" trades differently, do so here
+            pass
+
+        # Add black vertical lines at trade start & end
+        ax1.axvline(start_idx, color='black', linestyle='-', linewidth=1)
+        ax1.axvline(end_idx, color='black', linestyle='-', linewidth=1)
+
+    # Markers for trade entries on S1 (ax1)
     ax1.scatter(long_entries.index, S1.loc[long_entries.index], 
                 marker='^', color='green', s=100, label='S1 Long Entry (Long Spread)')
     ax1.scatter(short_entries.index, S1.loc[short_entries.index],
                 marker='v', color='red', s=100, label='S1 Short Entry (Short Spread)')
-    
-    # Add markers for trade entries on S2 (ax2):
-    # For long spread, S2 is short: red downward triangle.
+
+    # Markers for trade entries on S2 (ax2)
     ax2.scatter(long_entries.index, S2.loc[long_entries.index],
                 marker='v', color='red', s=100, label='S2 Short Entry (Long Spread)')
-    # For short spread, S2 is long: green upward triangle.
     ax2.scatter(short_entries.index, S2.loc[short_entries.index],
                 marker='^', color='green', s=100, label='S2 Long Entry (Short Spread)')
 
-    # Vertical lines at each trade entry
-    for entry in long_entries.index:
-        plt.axvline(entry, color='green', linestyle='--')
-    for entry in short_entries.index:
-        plt.axvline(entry, color='red', linestyle='--')
-
-    # Subplot 2: Plot z-score with thresholds and markers.
+    # Subplot 2: Z-score
     plt.subplot(5, 1, 2)
     plt.plot(zscore, label='Z-Score')
     plt.axhline(0, color='grey', linestyle='--', label='Mean')
-    plt.axhline(1.0, color='green', linestyle='--', label='Upper threshold')
-    plt.axhline(-1.0, color='green', linestyle='--', label='Lower threshold')
-    plt.axhline(2.0, color='red', linestyle='--', label='Stop Loss')
+    plt.axhline(1.0, color='green', linestyle='--', label='±1.0 Entry threshold')
+    plt.axhline(-1.0, color='green', linestyle='--')
+    plt.axhline(2.0, color='red', linestyle='--', label='±2.0 Stop-loss')
     plt.axhline(-2.0, color='red', linestyle='--')
-
-    # Example: add vertical dashed lines every 30 days if you want
-    if pd.api.types.is_datetime64_any_dtype(zscore.index):
-        boundaries = pd.date_range(start=zscore.index[0], end=zscore.index[-1], freq='30D')
-        for boundary in boundaries:
-            plt.axvline(boundary, color='black', linestyle=':', linewidth=1, label='30-Day Boundary')
-        # Remove duplicate labels
-        handles, labels = plt.gca().get_legend_handles_labels()
-        unique = dict(zip(labels, handles))
-        plt.legend(unique.values(), unique.keys())
-    else:
-        # If not datetime, just show a normal legend
-        plt.legend()
 
     plt.title("Z-Score of Spread")
     plt.scatter(long_entries.index, zscore.loc[long_entries.index], marker='^', 
@@ -388,20 +452,21 @@ def plot_trading_simulation(
     plt.scatter(short_entries.index, zscore.loc[short_entries.index], marker='v', 
                 color='red', s=100, label='Short Entry')
 
-    # Subplot 3: Plot trading positions.
+    # Subplot 3: Trading Positions
     plt.subplot(5, 1, 3)
     plt.plot(positions, label='Positions', drawstyle='steps-mid')
     plt.title("Trading Positions")
     plt.legend()
 
-    # Subplot 4: Plot cumulative PnL.
+    # Subplot 4: Cumulative PnL
     plt.subplot(5, 1, 4)
     plt.plot(cum_pnl, label='Cumulative PnL')
     plt.title("Strategy Performance (Cumulative PnL)")
     plt.legend()
-    
+
     plt.tight_layout()
     plt.show()
+
 
 #-------------------------------------------------------------------------------
 #                      Old Functions (Kept for Reference)
