@@ -8,14 +8,27 @@ import statsmodels.api as sm
 # ----------------- CONFIGURATION -----------------
 SECTOR_COIN_LIST = {
     # Example structure
-    "From_Paper": ["BTCEUR", "BTCGBP"]
+    "L2": [
+    "MNTUSDT",   # Mantle
+    "STRKUSDT",  # Starknet
+    "MATICUSDT", # Polygon
+    "ZKUSDT",    # zkSync (zkSync Era)
+    "SKLUSDT",   # SKALE
+    "LRCUSDT",   # Loopring
+    "METISUSDT", # Metis
+    "AEVOUSDT",  # Aevo
+    "BLASTUSDT", # Blast
+    "SCRUSDT",   # Scroll
+    "CTSIUSDT"   # Cartesi
+]
+            #Available from top 10: Arbitrum, Startknet, Zksync, Metis, Lisk
 }
 
-INTERVAL = "1m"  # Binance interval ("1m", "1h", "1d", etc.)
-YEAR = 2023      # Year for data
+INTERVAL = "30m"  # Binance interval ("1m", "1h", "1d", etc.)
+YEAR = 2024     # Year for data
 
 # If None (or empty list), fetch entire year. Otherwise, specify a list of months (1..12), e.g. [1, 2, 7]
-SELECTED_MONTHS = [12] # Fetch only October and November
+SELECTED_MONTHS = [] # Fetch only October (10) and November (11)
 
 # Directory to store data
 CSV_DIR = "binance_csvs"
@@ -93,9 +106,27 @@ def generate_filenames(symbol):
     return filenames
 
 
+def delete_all_data_for_symbol(symbol, sector):
+    """
+    Deletes all CSV files for a given symbol within a sector directory.
+    """
+    sector_dir = f"{BASE_DIR}/{sector}/{YEAR}/{INTERVAL}/"
+    files_deleted = 0
+
+    if os.path.exists(sector_dir):
+        for file in os.listdir(sector_dir):
+            if file.startswith(symbol):
+                os.remove(os.path.join(sector_dir, file))
+                files_deleted += 1
+
+    if files_deleted > 0:
+        print(f"🗑️ Deleted {files_deleted} files for {symbol} due to incomplete data.")
+
+
 def download_and_extract(symbol, sector, file_list):
     """
     Downloads and extracts Binance Kline data for a given trading pair.
+    If any file fails to download, all files for the pair will be deleted.
     """
     sector_dir = f"{BASE_DIR}/{sector}/{YEAR}/{INTERVAL}/"
     os.makedirs(sector_dir, exist_ok=True)
@@ -104,7 +135,7 @@ def download_and_extract(symbol, sector, file_list):
         file_url = f"https://data.binance.vision/data/spot/daily/klines/{symbol}/{INTERVAL}/{file_name}"
         zip_path = os.path.join(sector_dir, file_name)
 
-        # If the CSV from that date is already present, skip re-downloading
+        # If the CSV from that date already exists, skip re-downloading
         csv_candidate = zip_path.replace(".zip", ".csv")
         if os.path.exists(csv_candidate):
             print(f"✅ {file_name} already processed, skipping.")
@@ -112,19 +143,61 @@ def download_and_extract(symbol, sector, file_list):
 
         print(f"⬇️ Downloading {file_url}...")
         response = requests.get(file_url, stream=True)
-        if response.status_code == 200:
-            with open(zip_path, "wb") as file:
-                for chunk in response.iter_content(chunk_size=1024):
-                    file.write(chunk)
 
-            print(f"📂 Extracting {file_name}...")
-            with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                zip_ref.extractall(sector_dir)
+        if response.status_code != 200:
+            print(f"❌ Failed to download {file_name}. Removing all data for {symbol} and skipping...")
+            delete_all_data_for_symbol(symbol, sector)
+            return False  # Signal to skip this coin entirely
 
-            os.remove(zip_path)  # Delete the zip file after extraction
-            print(f"🗑️ Deleted {file_name}, only CSV saved.")
-        else:
-            print(f"❌ Failed to download: {file_url}")
+        # Save zip file
+        with open(zip_path, "wb") as file:
+            for chunk in response.iter_content(chunk_size=1024):
+                file.write(chunk)
+
+        # Extract and delete the zip
+        print(f"📂 Extracting {file_name}...")
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            zip_ref.extractall(sector_dir)
+
+        os.remove(zip_path)
+        print(f"🗑️ Deleted {file_name}, only CSV saved.")
+
+    return True  # Successful download and extraction of all files
+
+
+
+# def download_and_extract(symbol, sector, file_list):
+#     """
+#     Downloads and extracts Binance Kline data for a given trading pair.
+#     """
+#     sector_dir = f"{BASE_DIR}/{sector}/{YEAR}/{INTERVAL}/"
+#     os.makedirs(sector_dir, exist_ok=True)
+
+#     for file_name in file_list:
+#         file_url = f"https://data.binance.vision/data/spot/daily/klines/{symbol}/{INTERVAL}/{file_name}"
+#         zip_path = os.path.join(sector_dir, file_name)
+
+#         # If the CSV from that date is already present, skip re-downloading
+#         csv_candidate = zip_path.replace(".zip", ".csv")
+#         if os.path.exists(csv_candidate):
+#             print(f"✅ {file_name} already processed, skipping.")
+#             continue
+
+#         print(f"⬇️ Downloading {file_url}...")
+#         response = requests.get(file_url, stream=True)
+#         if response.status_code == 200:
+#             with open(zip_path, "wb") as file:
+#                 for chunk in response.iter_content(chunk_size=1024):
+#                     file.write(chunk)
+
+#             print(f"📂 Extracting {file_name}...")
+#             with zipfile.ZipFile(zip_path, "r") as zip_ref:
+#                 zip_ref.extractall(sector_dir)
+
+#             os.remove(zip_path)  # Delete the zip file after extraction
+#             print(f"🗑️ Deleted {file_name}, only CSV saved.")
+#         else:
+#             print(f"❌ Failed to download: {file_url}")
 
 
 def merge_csvs(symbol, sector):

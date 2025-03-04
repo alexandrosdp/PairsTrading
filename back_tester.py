@@ -323,6 +323,8 @@ def simulate_strategy_pnl(
         cum_pnl_pct (pd.Series)
     """
 
+    #The standard pairs logic: If β=2, it means “S1 moves 2 times as much as S2.” So to offset that effect, you hold 2 times as much notional in S2 as you do in S1.
+
     # If no beta_series, use 1.0
     if beta_series is None:
         # Create a series of 1.0 with same index
@@ -330,6 +332,10 @@ def simulate_strategy_pnl(
 
     # Convert to arrays for speed if you prefer
     daily_pnl = []
+
+    shares_S1_list = []
+    shares_S2_list = []
+
     # We'll iterate from i=1..end to compute daily PnL from i-1 -> i
     for i in range(1, len(S1)):
         prev_pos = positions.iloc[i-1]
@@ -367,6 +373,9 @@ def simulate_strategy_pnl(
         shares_S1 = Notional_S1 / S1.iloc[i-1]
         shares_S2 = Notional_S2 / S2.iloc[i-1]
 
+        shares_S1_list.append(shares_S1)
+        shares_S2_list.append(shares_S2)
+        
         # now the PnL depends on whether pos=+1 or -1
         if prev_pos == +1:
             # +1 => long S1 => daily PnL from S1 is shares_S1 * dS1
@@ -385,7 +394,7 @@ def simulate_strategy_pnl(
     cum_pnl_series = daily_pnl_series.cumsum()
     cum_pnl_pct_series = (cum_pnl_series / initial_capital) * 100.0
 
-    return daily_pnl_series, cum_pnl_series, cum_pnl_pct_series
+    return daily_pnl_series, cum_pnl_series, cum_pnl_pct_series, shares_S1_list, shares_S2_list
 
 
 def plot_trading_simulation(
@@ -536,7 +545,7 @@ def plot_trading_simulation(
 
     # Subplot 2: Z-score
     plt.subplot(5, 1, 2)
-    plt.plot(zscore, label='Z-Score', marker='o', color='purple')
+    plt.plot(zscore, label='Z-Score', color='purple')
     plt.axhline(0, color='grey', linestyle='--', label='Mean')
     plt.axhline(1.0, color='green', linestyle='--', label='±1.0 Entry threshold')
     plt.axhline(-1.0, color='green', linestyle='--')
@@ -549,14 +558,14 @@ def plot_trading_simulation(
     plt.scatter(short_entries.index, zscore.loc[short_entries.index], marker='v', 
                 color='red', s=100, label='Short Entry')
 
-    # Subplot 3: Trading Positions
-    plt.subplot(5, 1, 3)
-    plt.plot(positions, label='Positions', drawstyle='steps-mid')
-    plt.title("Trading Positions")
-    plt.legend()
+    # # Subplot 3: Trading Positions
+    # plt.subplot(5, 1, 3)
+    # plt.plot(positions, label='Positions', drawstyle='steps-mid')
+    # plt.title("Trading Positions")
+    # plt.legend()
 
     # Subplot 4: Cumulative PnL
-    plt.subplot(5, 1, 4)
+    plt.subplot(5, 1, 3)
     plt.plot(cum_pnl, label='Cumulative PnL')
     plt.title("Strategy Performance (Cumulative PnL)")
     plt.legend()
