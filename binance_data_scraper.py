@@ -8,19 +8,33 @@ import statsmodels.api as sm
 # ----------------- CONFIGURATION -----------------
 SECTOR_COIN_LIST = {
     # Example structure
-    "L2": [
-    "MNTUSDT",   # Mantle
-    "STRKUSDT",  # Starknet
-    "MATICUSDT", # Polygon
-    "ZKUSDT",    # zkSync (zkSync Era)
-    "SKLUSDT",   # SKALE
-    "LRCUSDT",   # Loopring
-    "METISUSDT", # Metis
-    "AEVOUSDT",  # Aevo
-    "BLASTUSDT", # Blast
-    "SCRUSDT",   # Scroll
-    "CTSIUSDT"   # Cartesi
-]
+#     "L2": [
+#     "MNTUSDT",   # Mantle
+#     "STRKUSDT",  # Starknet
+#     "MATICUSDT", # Polygon
+#     "ZKUSDT",    # zkSync (zkSync Era)
+#     "SKLUSDT",   # SKALE
+#     "LRCUSDT",   # Loopring
+#     "METISUSDT", # Metis
+#     "AEVOUSDT",  # Aevo
+#     "BLASTUSDT", # Blast
+#     "SCRUSDT",   # Scroll
+#     "CTSIUSDT"   # Cartesi
+# ]
+
+    # "Lending": [
+    #     "AAVEUSDT",  # Aave
+    #     "COMPUSDT",  # Compound
+    #     "XVSUSDT",   # Venus
+    #     "QIUSDT",    # Benqi
+    #     "RDNTUSDT",  # Radient
+    #     "TRUUSDT",   # TrueFi
+    # ]
+
+    "Wrapped BTC": [
+        "BTCUSDT",   # Bitcoin
+        "WBTCUSDT",  # Wrapped Bitcoin
+    ]
             #Available from top 10: Arbitrum, Startknet, Zksync, Metis, Lisk
 }
 
