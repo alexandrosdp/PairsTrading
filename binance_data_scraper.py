@@ -199,6 +199,21 @@ def download_and_extract(symbol, sector, file_list):
 #         else:
 #             print(f"❌ Failed to download: {file_url}")
 
+def check_if_merged_exists(symbol, sector):
+
+    """
+    Checks if a merged CSV file already exists for the given symbol.
+    """
+
+
+    sector_dir = f"{BASE_DIR}/{sector}/{YEAR}/{INTERVAL}/"
+    merged_file = os.path.join(sector_dir, f"{symbol}_{YEAR}_{INTERVAL}.csv")
+
+    if os.path.exists(merged_file):
+        print(f"✅ Merged file for {symbol} already exists. Skipping...")
+        return True
+    
+    return False
 
 def merge_csvs(symbol, sector):
     """
@@ -269,6 +284,10 @@ if __name__ == "__main__":
     for sector, coins in available_coins.items():
         for coin in coins:
             print(f"\n🚀 Processing {coin} in {sector} sector...")
+
+            # Check if the merged file already exists
+            if check_if_merged_exists(coin, sector):
+                continue  # Skip fetching if already exists
 
             # Now generate filenames for the entire YEAR or only SELECTED_MONTHS
             filenames = generate_filenames(coin)
