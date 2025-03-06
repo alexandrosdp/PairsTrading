@@ -117,7 +117,7 @@ def compute_rolling_zscore(spread_series, window_size):
 # and you want to use a window of, say, 720 observations (e.g., roughly one month for hourly data):
 # zscore_series, roll_mean, roll_std = compute_rolling_zscore(spread_series, window_size=720)
 
-def backtest_pair_rolling(spread_series, zscore, entry_threshold=1.0, exit_threshold=0.1, stop_loss_threshold=2.0):
+def backtest_pair_rolling(spread_series,S1,S2, zscore, entry_threshold=1.0, exit_threshold=0.1, stop_loss_threshold=2.0):
     """
     Generate trading signals based on the rolling z-score of the spread series using a moving window.
     
@@ -161,6 +161,15 @@ def backtest_pair_rolling(spread_series, zscore, entry_threshold=1.0, exit_thres
     # When we get stopped out, we set stop_out=True and remain out until
     # |z| <= exit_threshold again
     stop_out = False
+
+    #Create a list to track the price changes in each trafing period (from the start of the trade to the end)
+    # Lists to track price changes for each leg.
+    price_changes_S1 = []
+    price_changes_S2 = []
+    
+    # Initialize entry prices.
+    entry_price_S1 = None
+    entry_price_S2 = None
     
     for t, z in enumerate(zscore):
 
@@ -168,6 +177,8 @@ def backtest_pair_rolling(spread_series, zscore, entry_threshold=1.0, exit_thres
         if pd.isna(z):
             #print("INVALID Z-SCORE DETECTED")
             positions.append(0)
+            price_changes_S1.append(0)
+            price_changes_S2.append(0)
             continue
         
         #If we are not currentlty in a position
@@ -183,15 +194,24 @@ def backtest_pair_rolling(spread_series, zscore, entry_threshold=1.0, exit_thres
 
                     # remain flat
                     positions.append(0)
+                    price_changes_S1.append(0)
+                    price_changes_S2.append(0)
                     continue
-
+                    
                 #If we are not stopped out, check for entry
                 else:
                     # No position -> check entry
                     if z >= entry_threshold:
                         position = -1  # Short spread
+                        
+                        entry_price_S1 = S1.iloc[t]
+                        entry_price_S2 = S2.iloc[t]
+
                     elif z <= -entry_threshold:
                         position = +1  # Long spread
+
+                        entry_price_S1 = S1.iloc[t]
+                        entry_price_S2 = S2.iloc[t]
 
 
         #If we are currently in a position
@@ -203,23 +223,91 @@ def backtest_pair_rolling(spread_series, zscore, entry_threshold=1.0, exit_thres
                     position = 0
                     win_indexs.append(zscore.index[t]) #Appends actual datetime index of the winning trade
 
+                    # Record the exit prices for each leg
+                    exit_price_S1 = S1.iloc[t]
+                    exit_price_S2 = S2.iloc[t]
+                    
+                    #Record the price changes for each leg
+                    pc_S1 = exit_price_S1 - entry_price_S1
+                    pc_S2 = entry_price_S2 - exit_price_S2
+
+                    price_changes_S1.append(pc_S1)
+                    price_changes_S2.append(pc_S2)
+                    entry_price_S1 = None
+                    entry_price_S2 = None
+
                 # Stop-loss => if z <= -stop_loss_threshold
                 elif z <= -stop_loss_threshold:
                     position = 0
                     loss_indexs.append(zscore.index[t])
+
+                    # Record the exit prices for each leg
+                    exit_price_S1 = S1.iloc[t]
+                    exit_price_S2 = S2.iloc[t]
+
+                    #Record the price changes for each leg
+                    pc_S1 = exit_price_S1 - entry_price_S1
+                    pc_S2 = entry_price_S2 - exit_price_S2
+
+                    price_changes_S1.append(pc_S1)
+                    price_changes_S2.append(pc_S2)
+
                     stop_out = True
+                    entry_price_S1 = None
+                    entry_price_S2 = None
+                
+                else:
+                    price_changes_S1.append(0)
+                    price_changes_S2.append(0)
+
 
             elif position == -1:  # Short spread
                 # Normal exit => if z crosses below exit_threshold
                 if z <= exit_threshold:
                     position = 0
                     win_indexs.append(zscore.index[t])
+                    
+                    # Record the exit prices for each leg
+                    exit_price_S1 = S1.iloc[t]
+                    exit_price_S2 = S2.iloc[t]
+
+                    # For short spread: profit S1 = entry - exit, profit S2 = exit - entry.
+                    pc_S1 = entry_price_S1 - exit_price_S1
+                    pc_S2 = exit_price_S2 - entry_price_S2
+
+                    price_changes_S1.append(pc_S1)
+                    price_changes_S2.append(pc_S2)
+                    
+                    entry_price_S1 = None
+                    entry_price_S2 = None
 
                 # Stop-loss => if z >= stop_loss_threshold
                 elif z >= stop_loss_threshold:
                     position = 0
                     loss_indexs.append(zscore.index[t])
-                    stop_out
+
+                    # Record the exit prices for each leg
+                    exit_price_S1 = S1.iloc[t]
+                    exit_price_S2 = S2.iloc[t]
+
+                    # For short spread: profit S1 = entry - exit, profit S2 = exit - entry.
+                    pc_S1 = entry_price_S1 - exit_price_S1
+                    pc_S2 = exit_price_S2 - entry_price_S2
+
+                    price_changes_S1.append(pc_S1)
+                    price_changes_S2.append(pc_S2)
+
+                    stop_out = True
+
+                    entry_price_S1 = None
+                    entry_price_S2 = None
+
+
+                else:
+                    price_changes_S1.append(0)
+                    price_changes_S2.append(0)
+                    
+        
 
         positions.append(position)
 
@@ -234,7 +322,7 @@ def backtest_pair_rolling(spread_series, zscore, entry_threshold=1.0, exit_thres
     print(f"Win rate: {num_wins/(num_wins+num_losses):.2f}")
 
 
-    return positions, win_indexs, loss_indexs
+    return positions, win_indexs, loss_indexs, price_changes_S1, price_changes_S2
 
 # Example usage:
 # Suppose 'spread_series' is a pandas Series representing the spread between two assets,
@@ -336,6 +424,8 @@ def simulate_strategy_pnl(
     shares_S1_list = []
     shares_S2_list = []
 
+    short_profit_list = []
+
     # We'll iterate from i=1..end to compute daily PnL from i-1 -> i
     for i in range(1, len(S1)):
         prev_pos = positions.iloc[i-1]
@@ -380,11 +470,23 @@ def simulate_strategy_pnl(
         if prev_pos == +1:
             # +1 => long S1 => daily PnL from S1 is shares_S1 * dS1
             #        short S2 => daily PnL from S2 is shares_S2 * (-dS2)
+
+            # long_profit = shares_S1 * dS1
+            # short_profit = shares_S2 * (-dS2)
+            # day_pnl = long_profit + short_profit
+            
             day_pnl = shares_S1 * dS1 + shares_S2 * (-dS2)
+
+            
         else:
             # prev_pos == -1 => short S1 => daily PnL from S1 => shares_S1 * (-dS1)
             #                => long S2 => shares_S2 * dS2
+            # short_profit = shares_S1 * (-dS1)
+            # long_profit = shares_S2 * dS2
+            # day_pnl = short_profit + long_profit
+
             day_pnl = shares_S1 * (-dS1) + shares_S2 * dS2
+           # day_pnl = shares_S1 * (-dS1) + shares_S2 * dS2
 
         daily_pnl.append(day_pnl)
 
@@ -394,7 +496,7 @@ def simulate_strategy_pnl(
     cum_pnl_series = daily_pnl_series.cumsum()
     cum_pnl_pct_series = (cum_pnl_series / initial_capital) * 100.0
 
-    return daily_pnl_series, cum_pnl_series, cum_pnl_pct_series, shares_S1_list, shares_S2_list
+    return daily_pnl_series, cum_pnl_series, cum_pnl_pct_series, shares_S1_list, shares_S2_list, 
 
 
 def plot_trading_simulation(
