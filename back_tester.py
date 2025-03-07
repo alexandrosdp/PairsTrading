@@ -164,8 +164,8 @@ def backtest_pair_rolling(spread_series,S1,S2, zscore, entry_threshold=1.0, exit
 
     #Create a list to track the price changes in each trafing period (from the start of the trade to the end)
     # Lists to track price changes for each leg.
-    price_changes_S1 = []
-    price_changes_S2 = []
+    price_changes_S1 = [] #Percentage change in price of S1
+    price_changes_S2 = [] #Percentage change in price of S2
     
     # Initialize entry prices.
     entry_price_S1 = None
@@ -188,7 +188,7 @@ def backtest_pair_rolling(spread_series,S1,S2, zscore, entry_threshold=1.0, exit
                 if stop_out:
 
                     if abs(z) <= exit_threshold:
-
+        
                          # Once z <= exit_threshold, we allow new trades again
                         stop_out = False
 
@@ -228,11 +228,11 @@ def backtest_pair_rolling(spread_series,S1,S2, zscore, entry_threshold=1.0, exit
                     exit_price_S2 = S2.iloc[t]
                     
                     #Record the price changes for each leg
-                    pc_S1 = exit_price_S1 - entry_price_S1
-                    pc_S2 = entry_price_S2 - exit_price_S2
+                    pc_S1_percentage = (exit_price_S1 - entry_price_S1) / entry_price_S1
+                    pc_S2_percentage = (entry_price_S2 - exit_price_S2) / entry_price_S2
 
-                    price_changes_S1.append(pc_S1)
-                    price_changes_S2.append(pc_S2)
+                    price_changes_S1.append(pc_S1_percentage)
+                    price_changes_S2.append(pc_S2_percentage)
                     entry_price_S1 = None
                     entry_price_S2 = None
 
@@ -246,12 +246,12 @@ def backtest_pair_rolling(spread_series,S1,S2, zscore, entry_threshold=1.0, exit
                     exit_price_S2 = S2.iloc[t]
 
                     #Record the price changes for each leg
-                    pc_S1 = exit_price_S1 - entry_price_S1
-                    pc_S2 = entry_price_S2 - exit_price_S2
+                    pc_S1_percentage = (exit_price_S1 - entry_price_S1) / entry_price_S1
+                    pc_S2_percentage = (entry_price_S2 - exit_price_S2) / entry_price_S2
 
-                    price_changes_S1.append(pc_S1)
-                    price_changes_S2.append(pc_S2)
-
+                    price_changes_S1.append(pc_S1_percentage)
+                    price_changes_S2.append(pc_S2_percentage)
+                    
                     stop_out = True
                     entry_price_S1 = None
                     entry_price_S2 = None
@@ -272,11 +272,11 @@ def backtest_pair_rolling(spread_series,S1,S2, zscore, entry_threshold=1.0, exit
                     exit_price_S2 = S2.iloc[t]
 
                     # For short spread: profit S1 = entry - exit, profit S2 = exit - entry.
-                    pc_S1 = entry_price_S1 - exit_price_S1
-                    pc_S2 = exit_price_S2 - entry_price_S2
+                    pc_S1_percentage = (entry_price_S1 - exit_price_S1)/ entry_price_S1
+                    pc_S2_percentage = (exit_price_S2 - entry_price_S2) / entry_price_S2
 
-                    price_changes_S1.append(pc_S1)
-                    price_changes_S2.append(pc_S2)
+                    price_changes_S1.append(pc_S1_percentage)
+                    price_changes_S2.append(pc_S2_percentage)
                     
                     entry_price_S1 = None
                     entry_price_S2 = None
@@ -291,11 +291,11 @@ def backtest_pair_rolling(spread_series,S1,S2, zscore, entry_threshold=1.0, exit
                     exit_price_S2 = S2.iloc[t]
 
                     # For short spread: profit S1 = entry - exit, profit S2 = exit - entry.
-                    pc_S1 = entry_price_S1 - exit_price_S1
-                    pc_S2 = exit_price_S2 - entry_price_S2
+                    pc_S1_percentage = (entry_price_S1 - exit_price_S1)/ entry_price_S1
+                    pc_S2_percentage = (exit_price_S2 - entry_price_S2) / entry_price_S2
 
-                    price_changes_S1.append(pc_S1)
-                    price_changes_S2.append(pc_S2)
+                    price_changes_S1.append(pc_S1_percentage)
+                    price_changes_S2.append(pc_S2_percentage)
 
                     stop_out = True
 
@@ -383,120 +383,233 @@ def simulate_true_strategy_rolling(S1, S2, positions, beta_series):
     return pnl, cum_pnl
 
 
-def simulate_strategy_pnl(
-    S1, 
-    S2, 
-    positions, 
-    beta_series=None, 
-    initial_capital=1000.0
-):
+# def simulate_strategy_pnl(
+#     S1, 
+#     S2, 
+#     positions, 
+#     beta_series=None, 
+#     initial_capital=1000.0
+# ):
+#     """
+#     Compute daily/cumulative PnL for a pairs strategy that uses a hedge ratio (beta).
+
+#     If beta_series is None, we assume beta=1 at all times.
+#     Otherwise, beta_series[t] is the ratio for day t: 
+#         e.g. if position=+1, we buy shares in S1, 
+#         short beta_series[t]*shares_of_S2.
+
+#     Args:
+#         S1 (pd.Series): Price series for S1
+#         S2 (pd.Series): Price series for S2
+#         positions (pd.Series): 0=flat, +1=long spread, -1=short spread
+#         beta_series (pd.Series or float): The hedge ratio(s). If None => 1.0
+#         initial_capital (float): e.g. 1000 EUR
+
+#     Returns:
+#         daily_pnl (pd.Series)
+#         cum_pnl  (pd.Series)
+#         cum_pnl_pct (pd.Series)
+#     """
+
+#     #The standard pairs logic: If β=2, it means “S1 moves 2 times as much as S2.” So to offset that effect, you hold 2 times as much notional in S2 as you do in S1.
+
+#     # If no beta_series, use 1.0
+#     if beta_series is None:
+#         # Create a series of 1.0 with same index
+#         beta_series = pd.Series(1.0, index=S1.index)
+
+#     # Convert to arrays for speed if you prefer
+#     daily_pnl = []
+
+#     shares_S1_list = []
+#     shares_S2_list = []
+
+#     short_profit_list = []
+
+#     # We'll iterate from i=1..end to compute daily PnL from i-1 -> i
+#     for i in range(1, len(S1)):
+#         prev_pos = positions.iloc[i-1]
+#         if prev_pos == 0:
+#             # no position => daily PnL=0
+#             daily_pnl.append(0.0)
+#             continue
+        
+#         # Price changes
+#         dS1 = S1.iloc[i] - S1.iloc[i-1]
+#         dS2 = S2.iloc[i] - S2.iloc[i-1]
+
+#         # The ratio for day i-1
+#         beta = beta_series.iloc[i-1]
+
+#         # number of shares for each leg
+#         # total capital is initial_capital. We won't re-invest daily
+#         # Let's define a function that for a +1 spread,
+#         # we put half capital in S1, half in S2, but scale S2 by beta.
+#         # One approach:
+#         #   Notional_S1 = initial_capital / (1+beta)
+#         #   Notional_S2 = beta * Notional_S1 = (beta/(1+beta))*initial_capital
+#         # Then shares_S1 = Notional_S1 / price_of_S1
+#         #     shares_S2 = Notional_S2 / price_of_S2
+#         # if pos=+1 => we are long S1, short S2
+#         # if pos=-1 => we are short S1, long S2
+
+#         # compute these for day i-1
+#         #This determines how we allocate our capital between the two assets
+#         Notional_S1 = initial_capital / (1.0 + beta)
+#         Notional_S2 = beta * Notional_S1
+
+#         # share counts, based on the prices from i-1
+#         # We are using the prices from i-1 to determine the number of shares we would have bought/sold
+#         shares_S1 = Notional_S1 / S1.iloc[i-1]
+#         shares_S2 = Notional_S2 / S2.iloc[i-1]
+
+#         shares_S1_list.append(shares_S1)
+#         shares_S2_list.append(shares_S2)
+        
+#         # now the PnL depends on whether pos=+1 or -1
+#         if prev_pos == +1:
+#             # +1 => long S1 => daily PnL from S1 is shares_S1 * dS1
+#             #        short S2 => daily PnL from S2 is shares_S2 * (-dS2)
+
+#             # long_profit = shares_S1 * dS1
+#             # short_profit = shares_S2 * (-dS2)
+#             # day_pnl = long_profit + short_profit
+            
+#             day_pnl = shares_S1 * dS1 + shares_S2 * (-dS2)
+
+            
+#         else:
+#             # prev_pos == -1 => short S1 => daily PnL from S1 => shares_S1 * (-dS1)
+#             #                => long S2 => shares_S2 * dS2
+#             # short_profit = shares_S1 * (-dS1)
+#             # long_profit = shares_S2 * dS2
+#             # day_pnl = short_profit + long_profit
+
+#             day_pnl = shares_S1 * (-dS1) + shares_S2 * dS2
+#            # day_pnl = shares_S1 * (-dS1) + shares_S2 * dS2
+
+#         daily_pnl.append(day_pnl)
+
+#     # daily_pnl is one element shorter than S1, so let's align indexing
+#     daily_pnl_series = pd.Series([0.0] + daily_pnl, index=S1.index)
+
+#     cum_pnl_series = daily_pnl_series.cumsum()
+#     cum_pnl_pct_series = (cum_pnl_series / initial_capital) * 100.0
+
+#     return daily_pnl_series, cum_pnl_series, cum_pnl_pct_series, shares_S1_list, shares_S2_list, 
+
+def simulate_strategy_trade_pnl(S1, S2, positions, beta_series=None, initial_capital=1000.0):
     """
-    Compute daily/cumulative PnL for a pairs strategy that uses a hedge ratio (beta).
-
-    If beta_series is None, we assume beta=1 at all times.
-    Otherwise, beta_series[t] is the ratio for day t: 
-        e.g. if position=+1, we buy shares in S1, 
-        short beta_series[t]*shares_of_S2.
-
+    Compute the profit (or loss) for each trade by measuring the price change from the time the trade is opened
+    until it is closed. The profit is computed for both legs (S1 and S2) based on the allocated capital and
+    the hedge ratio at entry.
+    
+    For a long spread (positions = +1):
+      - You go long S1 and short S2.
+      - At entry, allocate capital as:
+            Notional_S1 = initial_capital / (1 + beta_entry)
+            Notional_S2 = beta_entry * Notional_S1.
+      - Shares are:
+            shares_S1 = Notional_S1 / S1_entry,
+            shares_S2 = Notional_S2 / S2_entry.
+      - Profit is:
+            profit = shares_S1 * (S1_exit - S1_entry) + shares_S2 * (S2_entry - S2_exit).
+    
+    For a short spread (positions = -1):
+      - You go short S1 and long S2.
+      - Profit is:
+            profit = shares_S1 * (S1_entry - S1_exit) + shares_S2 * (S2_exit - S2_entry).
+    
     Args:
-        S1 (pd.Series): Price series for S1
-        S2 (pd.Series): Price series for S2
-        positions (pd.Series): 0=flat, +1=long spread, -1=short spread
-        beta_series (pd.Series or float): The hedge ratio(s). If None => 1.0
-        initial_capital (float): e.g. 1000 EUR
-
+        S1 (pd.Series): Price series for asset S1.
+        S2 (pd.Series): Price series for asset S2.
+        positions (pd.Series): Trading signals (0 = flat, +1 = long spread, -1 = short spread).
+        beta_series (pd.Series or float, optional): Hedge ratio(s). If None, beta is assumed to be 1.0.
+        initial_capital (float, optional): The capital allocated per trade (default 1000.0).
+    
     Returns:
-        daily_pnl (pd.Series)
-        cum_pnl  (pd.Series)
-        cum_pnl_pct (pd.Series)
+        tuple: A tuple containing:
+            - trade_profits (list): A list of profit values (monetary gain/loss) for each closed trade.
+            - entry_indices (list): A list of indices (timestamps) when trades were opened.
+            - exit_indices (list): A list of indices (timestamps) when trades were closed.
     """
-
-    #The standard pairs logic: If β=2, it means “S1 moves 2 times as much as S2.” So to offset that effect, you hold 2 times as much notional in S2 as you do in S1.
-
-    # If no beta_series, use 1.0
+    
+    # If no beta_series is provided, use 1.0
     if beta_series is None:
-        # Create a series of 1.0 with same index
         beta_series = pd.Series(1.0, index=S1.index)
-
-    # Convert to arrays for speed if you prefer
-    daily_pnl = []
-
-    shares_S1_list = []
-    shares_S2_list = []
-
-    short_profit_list = []
-
-    # We'll iterate from i=1..end to compute daily PnL from i-1 -> i
-    for i in range(1, len(S1)):
-        prev_pos = positions.iloc[i-1]
-        if prev_pos == 0:
-            # no position => daily PnL=0
-            daily_pnl.append(0.0)
-            continue
-        
-        # Price changes
-        dS1 = S1.iloc[i] - S1.iloc[i-1]
-        dS2 = S2.iloc[i] - S2.iloc[i-1]
-
-        # The ratio for day i-1
-        beta = beta_series.iloc[i-1]
-
-        # number of shares for each leg
-        # total capital is initial_capital. We won't re-invest daily
-        # Let's define a function that for a +1 spread,
-        # we put half capital in S1, half in S2, but scale S2 by beta.
-        # One approach:
-        #   Notional_S1 = initial_capital / (1+beta)
-        #   Notional_S2 = beta * Notional_S1 = (beta/(1+beta))*initial_capital
-        # Then shares_S1 = Notional_S1 / price_of_S1
-        #     shares_S2 = Notional_S2 / price_of_S2
-        # if pos=+1 => we are long S1, short S2
-        # if pos=-1 => we are short S1, long S2
-
-        # compute these for day i-1
-        #This determines how we allocate our capital between the two assets
-        Notional_S1 = initial_capital / (1.0 + beta)
-        Notional_S2 = beta * Notional_S1
-
-        # share counts, based on the prices from i-1
-        # We are using the prices from i-1 to determine the number of shares we would have bought/sold
-        shares_S1 = Notional_S1 / S1.iloc[i-1]
-        shares_S2 = Notional_S2 / S2.iloc[i-1]
-
-        shares_S1_list.append(shares_S1)
-        shares_S2_list.append(shares_S2)
-        
-        # now the PnL depends on whether pos=+1 or -1
-        if prev_pos == +1:
-            # +1 => long S1 => daily PnL from S1 is shares_S1 * dS1
-            #        short S2 => daily PnL from S2 is shares_S2 * (-dS2)
-
-            # long_profit = shares_S1 * dS1
-            # short_profit = shares_S2 * (-dS2)
-            # day_pnl = long_profit + short_profit
-            
-            day_pnl = shares_S1 * dS1 + shares_S2 * (-dS2)
-
-            
+    elif not isinstance(beta_series, pd.Series):
+        # if it's a constant float, create a constant series.
+        beta_series = pd.Series(beta_series, index=S1.index)
+    
+    trade_profits = []
+    entry_indices = []
+    exit_indices = []
+    
+    in_trade = False
+    trade_direction = 0  # 1 for long spread, -1 for short spread.
+    entry_index = None
+    entry_price_S1 = None
+    entry_price_S2 = None
+    beta_entry = None  # Hedge ratio at entry.
+    
+    # Loop over the positions series.
+    for t in range(len(positions)):
+        current_pos = positions.iloc[t]
+        if not in_trade:
+            # Look for trade entry: when position changes from 0 to nonzero.
+            if current_pos != 0:
+                in_trade = True
+                trade_direction = current_pos
+                entry_index = positions.index[t]
+                entry_price_S1 = S1.iloc[t]
+                entry_price_S2 = S2.iloc[t]
+                beta_entry = beta_series.iloc[t]  # Use beta at entry.
+                entry_indices.append(entry_index)
         else:
-            # prev_pos == -1 => short S1 => daily PnL from S1 => shares_S1 * (-dS1)
-            #                => long S2 => shares_S2 * dS2
-            # short_profit = shares_S1 * (-dS1)
-            # long_profit = shares_S2 * dS2
-            # day_pnl = short_profit + long_profit
-
-            day_pnl = shares_S1 * (-dS1) + shares_S2 * dS2
-           # day_pnl = shares_S1 * (-dS1) + shares_S2 * dS2
-
-        daily_pnl.append(day_pnl)
-
-    # daily_pnl is one element shorter than S1, so let's align indexing
-    daily_pnl_series = pd.Series([0.0] + daily_pnl, index=S1.index)
-
-    cum_pnl_series = daily_pnl_series.cumsum()
-    cum_pnl_pct_series = (cum_pnl_series / initial_capital) * 100.0
-
-    return daily_pnl_series, cum_pnl_series, cum_pnl_pct_series, shares_S1_list, shares_S2_list, 
+            # If a trade is active, check for trade exit: position returns to 0.
+            if current_pos == 0:
+                exit_index = positions.index[t]
+                # Record exit prices.
+                exit_price_S1 = S1.iloc[t]
+                exit_price_S2 = S2.iloc[t]
+                exit_indices.append(exit_index)
+                
+                # Compute notional allocation based on initial capital and beta_entry.
+                Notional_S1 = initial_capital / (1.0 + beta_entry)
+                Notional_S2 = beta_entry * Notional_S1
+                
+                # Compute share counts at entry.
+                shares_S1 = Notional_S1 / entry_price_S1
+                shares_S2 = Notional_S2 / entry_price_S2
+                
+                # Compute profit depending on trade direction.
+                if trade_direction == 1:
+                    # Long spread: long S1, short S2.
+                    profit_S1 = shares_S1 * (exit_price_S1 - entry_price_S1)
+                    profit_S2 = shares_S2 * (entry_price_S2 - exit_price_S2)
+                    trade_profit = profit_S1 + profit_S2
+                elif trade_direction == -1:
+                    # Short spread: short S1, long S2.
+                    profit_S1 = shares_S1 * (entry_price_S1 - exit_price_S1)
+                    profit_S2 = shares_S2 * (exit_price_S2 - entry_price_S2)
+                    trade_profit = profit_S1 + profit_S2
+                else:
+                    trade_profit = 0.0
+                
+                trade_profits.append(trade_profit)
+                
+                # Reset trade state.
+                in_trade = False
+                trade_direction = 0
+                entry_index = None
+                entry_price_S1 = None
+                entry_price_S2 = None
+                beta_entry = None
+    
+    # Optionally, you might want to handle an open trade at the end of the series.
+    # For now, we'll ignore any open trade.
+    
+    return trade_profits, entry_indices, exit_indices
 
 
 def plot_trading_simulation(

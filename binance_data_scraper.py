@@ -31,18 +31,35 @@ SECTOR_COIN_LIST = {
     #     "TRUUSDT",   # TrueFi
     # ]
 
-    "Wrapped BTC": [
+    # "Wrapped BTC": [
+    #     "BTCUSDT",   # Bitcoin
+    #     "WBTCUSDT",  # Wrapped Bitcoin
+    # ]
+
+    "Hard_Fork_Btc": [
         "BTCUSDT",   # Bitcoin
-        "WBTCUSDT",  # Wrapped Bitcoin
+        "BCHUSDT",   # Bitcoin Cash
+        "BSVUSDT",   # Bitcoin SV
     ]
+
+    # "Merged_Mining_Cousins": [
+    #     "LTCUSDT",   # Litecoin
+    #     "DOGEUSDT",  # Dogecoin
+    # ]
+
+    # "Platform_Ecosystem_Pair": [
+    #     "DOTUSDT",   # Polkadot
+    #     "KSMUSDT",   # Kusama
+    # ]
+
             #Available from top 10: Arbitrum, Startknet, Zksync, Metis, Lisk
 }
 
-INTERVAL = "30m"  # Binance interval ("1m", "1h", "1d", etc.)
+INTERVAL = "5m"  # Binance interval ("1m", "1h", "1d", etc.)
 YEAR = 2024     # Year for data
 
 # If None (or empty list), fetch entire year. Otherwise, specify a list of months (1..12), e.g. [1, 2, 7]
-SELECTED_MONTHS = [] # Fetch only October (10) and November (11)
+SELECTED_MONTHS = [1,2,3] # Fetch only October (10) and November (11)
 
 # Directory to store data
 CSV_DIR = "binance_csvs"
