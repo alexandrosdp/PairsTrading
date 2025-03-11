@@ -548,6 +548,12 @@ def simulate_strategy_trade_pnl(S1, S2, positions, beta_series=None, initial_cap
     trade_profits = []
     entry_indices = []
     exit_indices = []
+
+    long_spread = False
+    short_spread = False
+
+    long_spread_loss_count = 0
+    short_spread_loss_count = 0
     
     in_trade = False  # Flag indicating whether a trade is active.
     trade_direction = 0  # +1 for long spread, -1 for short spread.
@@ -564,6 +570,13 @@ def simulate_strategy_trade_pnl(S1, S2, positions, beta_series=None, initial_cap
             if current_pos != 0:
                 in_trade = True
                 trade_direction = current_pos
+
+                if trade_direction == 1:
+                    long_spread = True
+                elif trade_direction == -1:
+                    short_spread = True
+
+
                 entry_index = positions.index[t]
                 entry_price_S1 = S1.iloc[t]
                 entry_price_S2 = S2.iloc[t]
@@ -592,11 +605,17 @@ def simulate_strategy_trade_pnl(S1, S2, positions, beta_series=None, initial_cap
                     gross_profit_S2 = shares_S2 * (entry_price_S2 - exit_price_S2)
                     gross_profit = gross_profit_S1 + gross_profit_S2
 
+
+
                 elif trade_direction == -1:
                     # Short spread: short S1, long S2.
                     gross_profit_S1 = shares_S1 * (entry_price_S1 - exit_price_S1)
                     gross_profit_S2 = shares_S2 * (exit_price_S2 - entry_price_S2)
                     gross_profit = gross_profit_S1 + gross_profit_S2
+
+                    if(gross_profit/initial_capital < 0):
+
+                        short_spread_loss_count += 1
 
                 else:
                     gross_profit = 0.0
@@ -614,6 +633,16 @@ def simulate_strategy_trade_pnl(S1, S2, positions, beta_series=None, initial_cap
                 # Net trade profit is gross profit minus total transaction fees.
                 net_trade_profit = gross_profit - total_fees
                 
+                #If the trade is a loss, increment the loss count
+                if net_trade_profit/initial_capital < 0:
+
+                    if long_spread:
+                        long_spread_loss_count += 1
+                    elif short_spread:
+                        short_spread_loss_count += 1
+                
+
+                
                 trade_profits.append(net_trade_profit)
                 
                 # Reset trade state.
@@ -623,12 +652,17 @@ def simulate_strategy_trade_pnl(S1, S2, positions, beta_series=None, initial_cap
                 entry_price_S1 = None
                 entry_price_S2 = None
                 beta_entry = None
+
+                # Reset spread direction flags.
+                long_spread = False
+                short_spread = False
+                
                 
     # Compute cumulative profit from the list of trade profits.
     cumulative_profit = np.cumsum(trade_profits)
     cumulative_profit_series = pd.Series(cumulative_profit, index=exit_indices)
     
-    return trade_profits, cumulative_profit_series, entry_indices, exit_indices
+    return trade_profits, cumulative_profit_series, entry_indices, exit_indices, long_spread_loss_count, short_spread_loss_count
 
 # Example usage:
 # daily_pnl, cum_pnl, entry_indices, exit_indices = simulate_strategy_trade_pnl(S1, S2, positions, beta_series, initial_capital=1000.0, tx_cost=0.001)
@@ -783,9 +817,10 @@ def plot_trading_simulation(
     ax2.scatter(short_entries.index, S2.loc[short_entries.index],
                 marker='^', color='green', s=100, label='S2 Long Entry (Short Spread)')
 
+
     # Subplot 2: Z-score
     plt.subplot(5, 1, 2)
-    plt.plot(zscore, label='Z-Score', color='purple')
+    plt.plot(zscore, label='Z-Score', color='purple', marker='o')
     plt.axhline(0, color='grey', linestyle='--', label='Mean')
     plt.axhline(entry_threshold, color='green', linestyle='--', label='±1.0 Entry threshold')
     plt.axhline(-entry_threshold, color='green', linestyle='--')

@@ -145,6 +145,26 @@ def merge_ohlc_closing_prices(directory):
 
     # Merge all dataframes on timestamp
     if closing_prices:
+        # merged_df = list(closing_prices.values())[0]  # Start with the first DataFrame
+        # for symbol, df in list(closing_prices.items())[1:]:
+        #     merged_df = pd.merge(merged_df, df, on="timestamp", how="outer")  # Merge on timestamp
+
+        # # Sort by timestamp
+        # merged_df.sort_values("timestamp", inplace=True)
+        # merged_df.reset_index(drop=True, inplace=True)
+
+        # # Check for NaNs and log missing values
+        # nan_counts = merged_df.isna().sum()
+        # total_nans = nan_counts.sum()
+
+        # Find the latest starting timestamp among all datasets
+        common_start_time = max(df['timestamp'].min() for df in closing_prices.values())
+
+        # Filter each dataset to only include data from the common start time onward
+        for symbol, df in closing_prices.items():
+            closing_prices[symbol] = df[df['timestamp'] >= common_start_time]
+
+        # Merge all dataframes on timestamp
         merged_df = list(closing_prices.values())[0]  # Start with the first DataFrame
         for symbol, df in list(closing_prices.items())[1:]:
             merged_df = pd.merge(merged_df, df, on="timestamp", how="outer")  # Merge on timestamp
@@ -156,6 +176,7 @@ def merge_ohlc_closing_prices(directory):
         # Check for NaNs and log missing values
         nan_counts = merged_df.isna().sum()
         total_nans = nan_counts.sum()
+
 
         if total_nans > 0:
             print(f"⚠️ Detected {total_nans} missing values across the dataset.")
