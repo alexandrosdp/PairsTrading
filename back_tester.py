@@ -498,7 +498,7 @@ def simulate_true_strategy_rolling(S1, S2, positions, beta_series):
 
 #     return daily_pnl_series, cum_pnl_series, cum_pnl_pct_series, shares_S1_list, shares_S2_list, 
 
-def simulate_strategy_trade_pnl(S1, S2, positions, beta_series=None, initial_capital=1000.0, tx_cost=None):
+def simulate_strategy_trade_pnl(S1, S2, positions,initial_capital, beta_series=None, tx_cost=None):
     """
     Compute the profit (or loss) for each trade by measuring the price change from the time the trade is opened
     until it is closed, and adjust for transaction costs if provided.
@@ -554,6 +554,8 @@ def simulate_strategy_trade_pnl(S1, S2, positions, beta_series=None, initial_cap
 
     long_spread_loss_count = 0
     short_spread_loss_count = 0
+
+    number_of_dual_leg_profits = 0
     
     in_trade = False  # Flag indicating whether a trade is active.
     trade_direction = 0  # +1 for long spread, -1 for short spread.
@@ -561,6 +563,7 @@ def simulate_strategy_trade_pnl(S1, S2, positions, beta_series=None, initial_cap
     entry_price_S1 = None
     entry_price_S2 = None
     beta_entry = None  # Hedge ratio at entry.
+
     
     # Loop over the positions series.
     for t in range(len(positions)):
@@ -593,10 +596,12 @@ def simulate_strategy_trade_pnl(S1, S2, positions, beta_series=None, initial_cap
                 # Compute notional allocation based on initial capital and beta_entry.
                 Notional_S1 = initial_capital / (1.0 + beta_entry)
                 Notional_S2 = beta_entry * Notional_S1
+
                 
                 # Compute share counts at entry.
                 shares_S1 = Notional_S1 / entry_price_S1
                 shares_S2 = Notional_S2 / entry_price_S2
+
                 
                 # Compute gross profit based on trade direction.
                 if trade_direction == 1:
@@ -605,6 +610,14 @@ def simulate_strategy_trade_pnl(S1, S2, positions, beta_series=None, initial_cap
                     gross_profit_S2 = shares_S2 * (entry_price_S2 - exit_price_S2)
                     gross_profit = gross_profit_S1 + gross_profit_S2
 
+                    if(gross_profit_S1 > 0 and gross_profit_S2 > 0):
+
+                        number_of_dual_leg_profits += 1
+                        print(f"Dual Leg profit: {gross_profit_S1}, {gross_profit_S2}")
+
+                    else:
+
+                        print(f"Dual Leg loss: {gross_profit_S1}, {gross_profit_S2}")
 
 
                 elif trade_direction == -1:
@@ -616,6 +629,14 @@ def simulate_strategy_trade_pnl(S1, S2, positions, beta_series=None, initial_cap
                     if(gross_profit/initial_capital < 0):
 
                         short_spread_loss_count += 1
+
+                    if(gross_profit_S1 > 0 and gross_profit_S2 > 0):
+
+                        number_of_dual_leg_profits += 1
+                        print(f"Dual Leg profit: {gross_profit_S1}, {gross_profit_S2}")
+                    else:
+
+                        print(f"Dual Leg loss: {gross_profit_S1}, {gross_profit_S2}")
 
                 else:
                     gross_profit = 0.0
@@ -630,6 +651,9 @@ def simulate_strategy_trade_pnl(S1, S2, positions, beta_series=None, initial_cap
                 else:
                     total_fees = 0.0
                 
+                
+                #print(f"Trade Profit: {gross_profit}, Total Fees: {total_fees}")
+
                 # Net trade profit is gross profit minus total transaction fees.
                 net_trade_profit = gross_profit - total_fees
                 
@@ -662,7 +686,7 @@ def simulate_strategy_trade_pnl(S1, S2, positions, beta_series=None, initial_cap
     cumulative_profit = np.cumsum(trade_profits)
     cumulative_profit_series = pd.Series(cumulative_profit, index=exit_indices)
     
-    return trade_profits, cumulative_profit_series, entry_indices, exit_indices, long_spread_loss_count, short_spread_loss_count
+    return trade_profits, cumulative_profit_series, entry_indices, exit_indices, long_spread_loss_count, short_spread_loss_count, number_of_dual_leg_profits
 
 # Example usage:
 # daily_pnl, cum_pnl, entry_indices, exit_indices = simulate_strategy_trade_pnl(S1, S2, positions, beta_series, initial_capital=1000.0, tx_cost=0.001)
