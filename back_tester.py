@@ -610,7 +610,7 @@ def simulate_strategy_trade_pnl(S1, S2, positions,initial_capital, beta_series=N
                     gross_profit_S2 = shares_S2 * (entry_price_S2 - exit_price_S2)
                     gross_profit = gross_profit_S1 + gross_profit_S2
 
-                    if(gross_profit_S1 > 0 and gross_profit_S2 > 0):
+                    if (gross_profit_S1 > 0 and gross_profit_S2 > 0):
 
                         number_of_dual_leg_profits += 1
                         print(f"Dual Leg profit: {gross_profit_S1}, {gross_profit_S2}")
@@ -626,7 +626,7 @@ def simulate_strategy_trade_pnl(S1, S2, positions,initial_capital, beta_series=N
                     gross_profit_S2 = shares_S2 * (exit_price_S2 - entry_price_S2)
                     gross_profit = gross_profit_S1 + gross_profit_S2
 
-                    if(gross_profit/initial_capital < 0):
+                    if (gross_profit/initial_capital).item() < 0:
 
                         short_spread_loss_count += 1
 
