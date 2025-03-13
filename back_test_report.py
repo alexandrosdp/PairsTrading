@@ -12,7 +12,7 @@ import os
 from matplotlib.backends.backend_pdf import PdfPages
 
 
-def generate_back_test_report(prices):
+def generate_back_test_report(prices,**params):
 
     #XVS/USDT_2024_30m & QI/USDT_2024_30m
 
@@ -27,27 +27,35 @@ def generate_back_test_report(prices):
     0.22)]
 
     #Params:
-    window_size = 336
-    entry_threshold= 4.0
-    exit_threshold=0.1
-    stop_loss_threshold= 25
+    window_size = params.get("window_size")
+    entry_threshold = params.get("entry_threshold")
+    exit_threshold = params.get("exit_threshold")
+    stop_loss_threshold = params.get("stop_loss_threshold")
+    timeframe_str = params.get("timeframe_str", "Timeframe: 1 Year (30min Data)")
+    year_str = params.get("year_str", "Year: 2024")
+    min_pass_fraction = params.get("min_pass_fraction")
+    significance = params.get("significance")
 
-    if cointegrated_pairs:
-        sym1, sym2, pass_fraction, avg_p_value,correlation = cointegrated_pairs[0]
-        print(f"\nTesting strategy on pair: {sym1} and {sym2} (pass_fractioon: {pass_fraction:.4f},average_p_value: {avg_p_value:.4f} correlation: {correlation:.4f})")
-        S1 = prices[sym1]
-        S2 = prices[sym2]
-        
-        # Compute the spread series and beta_series 
-        spread_series, beta_series, alpha_series = compute_spread_series(S1, S2, window_size)
-        #print(f"Hedge ratio (beta) for {sym1} ~ {sym2}: {beta:.4f}")
-        
-        # Compute rolling z-score using the provided helper function.
-        zscore_series, rolling_mean, rolling_std = compute_rolling_zscore(spread_series, window_size)
-        
-        # Generate trading signals (positions) based on the spread's z-score
-        positions_series,  win_indexs, loss_indexs, price_changes_S1, price_changes_S2 = backtest_pair_rolling(spread_series,S1,S2,zscore_series, entry_threshold, exit_threshold, stop_loss_threshold)
-        
+    high_corr_pairs = []
+
+    #Results from cointegration tests
+    cointegrated_pairs, window_results, pair_corr, pass_fraction, avg_pvalue = find_cointegrated_pairs_windows(prices, high_corr_pairs, significance, window_size, min_pass_fraction)
+
+    sym1, sym2 = prices.columns
+    print(f"\nTesting strategy on pair: {sym1} and {sym2}...")
+    S1 = prices[sym1]
+    S2 = prices[sym2]
+    
+    # Compute the spread series and beta_series 
+    spread_series, beta_series, alpha_series = compute_spread_series(S1, S2, window_size)
+    #print(f"Hedge ratio (beta) for {sym1} ~ {sym2}: {beta:.4f}")
+    
+    # Compute rolling z-score using the provided helper function.
+    zscore_series, rolling_mean, rolling_std = compute_rolling_zscore(spread_series, window_size)
+    
+    # Generate trading signals (positions) based on the spread's z-score
+    positions_series,  win_indexs, loss_indexs, price_changes_S1, price_changes_S2 = backtest_pair_rolling(spread_series,S1,S2,zscore_series, entry_threshold, exit_threshold, stop_loss_threshold)
+    
     initial_capital = 10_000.0
     #tx_cost= 0.00031 #0.031% transaction cost
     tx_cost= 0.00025 #0.025% transaction cost
@@ -130,19 +138,31 @@ def generate_back_test_report(prices):
     drawdown = running_max - cumulative_profit_series
     max_drawdown = drawdown.max()
 
+    # Prepare parameters used in the back-test as a dictionary.
+    parameters_used = {
+        "Window Size": window_size,
+        "Entry Threshold": entry_threshold,
+        "Exit Threshold": exit_threshold,
+        "Stop Loss Threshold": stop_loss_threshold,
+        "Initial Capital": initial_capital,
+        "Transaction Cost": tx_cost
+    }
+    parameters_df = pd.DataFrame(list(parameters_used.items()), columns=["", ""])
+
     # Prepare a summary DataFrame of metrics.
     summary_metrics = {
-        "Pair": f"{sym1} vs {sym2}",
         "Total Trades": total_trades,
         "Win Rate": f"{win_rate:.2f}",
         "Total Return (%)": f"{total_return_pct:.2f}",
         "Max Drawdown": f"{max_drawdown:.2f}",
-        "Avg Abs % Reversion": f"{Average_Absolute_Percentage_Reversion:.4f}",
-        "Pass Fraction": f"{pass_fraction:.4f}",
-        "Avg p-value": f"{avg_p_value:.4f}",
-        "Correlation": f"{correlation:.4f}"
+        "Avg Abs % Reversion": f"{Average_Absolute_Percentage_Reversion:.2f}",
+        "Pass Fraction": f"{pass_fraction:.2f}",
+        "Avg p-value": f"{avg_pvalue:.2f}",
+        "Correlation": f"{pair_corr:.5f}"
     }
-    summary_df = pd.DataFrame([summary_metrics])
+    #summary_df = pd.DataFrame([summary_metrics])
+
+    summary_df = pd.DataFrame(list(summary_metrics.items()), columns=["Metric", "Value"])
     
     pdf_filename = f"backtest_report_{sym1}_{sym2}.pdf"
 
@@ -156,12 +176,38 @@ def generate_back_test_report(prices):
         # Page 1: Title and Summary Metrics Table.
         plt.figure(figsize=(8.27, 11.69))  # A4 portrait size in inches.
         plt.axis('off')
-        plt.title("Pairs Trading Back Test Report", fontsize=20, pad=20)
-        # Create a table from the summary DataFrame.
-        table = plt.table(cellText=summary_df.values, colLabels=summary_df.columns, loc='center', cellLoc='center')
-        table.auto_set_font_size(False)
-        table.set_fontsize(12)
-        table.scale(1, 2)
+        plt.title("Pairs Trading Back Test Report", fontsize=20,weight = 'bold',pad=50)
+
+        # Add subheading with the pair information.
+        pair_heading = f"Pair: {sym1} vs {sym2}"
+        plt.text(0.5, 0.90, pair_heading, horizontalalignment='center', fontsize=16, transform=plt.gcf().transFigure)
+        
+        # Add subtitles for timeframe and year below the pair heading.
+        plt.text(0.5, 0.86, timeframe_str, horizontalalignment='center', fontsize=14, transform=plt.gcf().transFigure)
+        plt.text(0.5, 0.84, year_str, horizontalalignment='center', fontsize=14, transform=plt.gcf().transFigure)
+
+        # Parameters Table (placed at the top half of the page)
+
+        plt.text(0.5, 0.78, "Back-Test Parameters", horizontalalignment='center', fontsize=14, transform=plt.gcf().transFigure)
+
+        param_table = plt.table(cellText=parameters_df.values,
+                                loc='upper center',
+                                cellLoc='left',
+                                bbox=[0.15, 0.65, 0.70, 0.20])
+        param_table.auto_set_font_size(False)
+        param_table.set_fontsize(12)
+
+
+        # Summary Metrics Table (placed below the parameters table)
+        plt.text(0.5, 0.55, "Summary Metrics", horizontalalignment='center', fontsize=14, transform=plt.gcf().transFigure)
+
+        summary_table = plt.table(cellText=summary_df.values,
+                                  loc='center',
+                                  cellLoc='left',
+                                  bbox=[0.15, 0.35, 0.70, 0.20])
+        summary_table.auto_set_font_size(False)
+        summary_table.set_fontsize(12)
+        
         pdf.savefig()
         plt.close()
 
@@ -198,10 +244,10 @@ def generate_back_test_report(prices):
         pdf.savefig()
         plt.close()
 
-        # Page 5: Spread and Trading Positions.
+        # Page 5: Zscore Spread Time Series and Trading Positions.
         plt.figure(figsize=(11, 8.5))
         plt.subplot(2, 1, 1)
-        plt.plot(spread_series, label="Spread")
+        plt.plot(zscore_series, label="Z-Score Spread")
         plt.title("Spread Series")
         plt.legend()
         plt.subplot(2, 1, 2)
@@ -211,19 +257,25 @@ def generate_back_test_report(prices):
         pdf.savefig()
         plt.close()
 
-        # Page 6: Additional Plot - Average Absolute Percentage Reversion Comparison.
-        plt.figure(figsize=(11, 8.5))
-        plt.bar(["S1", "S2"], [avg_abs_s1_price_change_percent, avg_abs_s2_price_change_percent], color=['blue','red'])
-        plt.title("Average Absolute Percentage Change per Trade")
-        plt.ylabel("Percentage Change (%)")
-        pdf.savefig()
-        plt.close()
     
-    print(f"PDF report generated: {pdf_filename}")
+    print(f"PDF report generated  ✅: {pdf_filename}")
 
 
 
 if __name__ == '__main__':
 
     prices = pd.read_csv("binance_data/Staked_ETH_Bybit/merged_closing_prices.csv", index_col=0, parse_dates=True)
-    generate_back_test_report(prices)
+
+    params = {
+    "window_size": 336,
+    "entry_threshold": 4.0,
+    "exit_threshold": 0.1,
+    "stop_loss_threshold": 25,
+    "timeframe_str": "Timeframe: 1 Year (30min Data)",
+    "year_str": "Year: 2024",
+    "min_pass_fraction": 0.5,
+    "significance": 0.05
+    }
+
+
+    generate_back_test_report(prices, **params)

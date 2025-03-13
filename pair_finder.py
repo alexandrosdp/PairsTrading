@@ -1,3 +1,4 @@
+import itertools
 import pandas as pd
 import numpy as np
 import statsmodels.api as sm
@@ -125,6 +126,13 @@ def find_cointegrated_pairs_windows(prices, high_corr_pairs=None, significance=0
                 # We'll set correlation to None (or 0) since we don't know it
                 high_corr_pairs.append((symbols[i], symbols[j], None))
 
+    #Get correlation of pairs
+    corr_matrix = prices.corr()
+
+    #Extract correlation between first and second crypto
+    for pair in itertools.combinations(prices.columns, 2):
+        pair_corr = corr_matrix.loc[pair[0], pair[1]]
+
     # 2) Split the full data into windows
     windows = split_price_series_into_windows(prices, window_size)
     num_windows = len(windows)
@@ -172,11 +180,11 @@ def find_cointegrated_pairs_windows(prices, high_corr_pairs=None, significance=0
     if cointegrated_pairs:
         print("\nCointegrated pairs (across windows):")
         for pair in cointegrated_pairs:
-            print(f"{pair[0]} & {pair[1]}: pass fraction={pair[2]:.2f}, avg p-value={pair[3]:.4f}, correlation={pair[4]}")
+            print(f"{pair[0]} & {pair[1]}: pass fraction={pair[2]:.2f}, avg p-value={pair[3]:.4f}, correlation={pair_corr}")
     else:
         print("\nNo cointegrated pairs found across the windows.")
     
-    return cointegrated_pairs, window_results
+    return cointegrated_pairs, window_results, pair_corr, pass_fraction, avg_pvalue
 
 # Example usage:
 # Assuming `prices` is your DataFrame with 1 year of hourly data and 
