@@ -4,9 +4,35 @@ import zipfile
 import pandas as pd
 from datetime import datetime, timedelta
 import statsmodels.api as sm
+import requests
+from bs4 import BeautifulSoup
 
 # ----------------- CONFIGURATION -----------------
 SECTOR_COIN_LIST = {
+
+    #  "Hard_Fork_Btc": [
+    #     "BTCUSDT",   # Bitcoin
+    #     "BCHUSDT",   # Bitcoin Cash
+    #     "BSVUSDT",   # Bitcoin SV
+    # ]
+
+    "top_100_tickers": [
+    "BTCUSDT", "ETHUSDT", "USDTUSDT", "XRPUSDT", "BNBUSDT", "SOLUSDT", "USDCUSDT", "ADAUSDT", "DOGEUSDT", "TRXUSDT",
+    "PIUSDT", "XLMUSDT", "LEOUSDT", "LINKUSDT", "HBARUSDT", "AVAXUSDT", "SUIUSDT", "SHIBUSDT", "TONUSDT", "LTCUSDT",
+    "BCHUSDT", "OMUSDT", "DOTUSDT", "USDEUSDT", "DAIUSDT", "BGBUSDT", "HYPEUSDT", "XMRUSDT", "UNIUSDT", "NEARUSDT",
+    "APTUSDT", "PEPEUSDT", "ONDOUSDT", "ETCUSDT", "ICPUSDT", "AAVEUSDT", "OKBUSDT", "MNTUSDT", "CROUSDT", "TRUMPUSDT",
+    "TAOUSDT", "VETUSDT", "FDUSDUSDT", "TIAUSDT", "KASUSDT", "POLUSDT", "FILUSDT", "GTUSDT", "ALGOUSDT", "RENDERUSDT",
+    "ATOMUSDT", "ARBUSDT", "IPUSDT", "DEXEUSDT", "SUSDT", "OPUSDT", "JUPUSDT", "KCSUSDT", "FETUSDT", "ENAUSDT",
+    "MOVEUSDT", "XDCUSDT", "MKRUSDT", "STXUSDT", "IMXUSDT", "QNTUSDT", "WLDUSDT", "INJUSDT", "FLRUSDT", "SEIUSDT",
+    "THETAUSDT", "GRTUSDT", "BONKUSDT", "LDOUSDT", "EOSUSDT", "XAUTUSDT", "GALAUSDT", "XTZUSDT", "PYUSDUSDT", 
+    "SANDUSDT", "NEXOUSDT", "BTTUSDT", "IOTAUSDT", "JTOUSDT", "KAIAUSDT", "JASMYUSDT", "BERAUSDT", "BSVUSDT", 
+    "FLOWUSDT", "PAXGUSDT", "ENSUSDT", "FLOKIUSDT", "NEOUSDT", "PYTHUSDT", "CRVUSDT", "MANAUSDT", "HNTUSDT", 
+    "RONUSDT", "AXSUSDT", "EGLDUSDT"
+    ]
+
+
+
+
     # Example structure
 #     "L2": [
 #     "MNTUSDT",   # Mantle
@@ -36,11 +62,11 @@ SECTOR_COIN_LIST = {
     #     "WBTCUSDT",  # Wrapped Bitcoin
     # ]
 
-    "Hard_Fork_Btc": [
-        "BTCUSDT",   # Bitcoin
-        "BCHUSDT",   # Bitcoin Cash
-        "BSVUSDT",   # Bitcoin SV
-    ]
+    # "Hard_Fork_Btc": [
+    #     "BTCUSDT",   # Bitcoin
+    #     "BCHUSDT",   # Bitcoin Cash
+    #     "BSVUSDT",   # Bitcoin SV
+    # ]
 
     # "Merged_Mining_Cousins": [
     #     "LTCUSDT",   # Litecoin
@@ -55,11 +81,11 @@ SECTOR_COIN_LIST = {
             #Available from top 10: Arbitrum, Startknet, Zksync, Metis, Lisk
 }
 
-INTERVAL = "5m"  # Binance interval ("1m", "1h", "1d", etc.)
+INTERVAL = "1m"  # Binance interval ("1m", "1h", "1d", etc.)
 YEAR = 2024     # Year for data
 
 # If None (or empty list), fetch entire year. Otherwise, specify a list of months (1..12), e.g. [1, 2, 7]
-SELECTED_MONTHS = [1,2,3] # Fetch only October (10) and November (11)
+SELECTED_MONTHS = [1,2,3,4,5,6] # Fetch only October (10) and November (11)
 
 # Directory to store data
 CSV_DIR = "binance_csvs"
@@ -71,6 +97,14 @@ COLUMNS = [
     "Close Time", "Quote Asset Volume", "Number of Trades",
     "Taker Buy Base Volume", "Taker Buy Quote Volume", "Ignore"
 ]
+
+
+
+
+
+
+
+
 
 
 # ----------------- HELPER FUNCTIONS -----------------
@@ -99,6 +133,12 @@ def check_binance_availability():
     print("\n✅ Available Binance Coins by Sector:")
     for sector, coins in available_coins.items():
         print(f"📌 {sector}: {', '.join(coins)}")
+
+    # #Conver avialble coins to a list
+    # available_coins = list(available_coins.values())
+    # available_coins = [item for sublist in available_coins for item in sublist]
+    # print(f"Lenght of available coins: {len(available_coins)}")
+    
 
     return available_coins
 
@@ -310,6 +350,7 @@ if __name__ == "__main__":
     # Example: SELECTED_MONTHS = [1, 2, 12]  # fetch January, February, December of the YEAR
     # If SELECTED_MONTHS is None or an empty list, the entire year is fetched
 
+ 
     available_coins = check_binance_availability()
 
     for sector, coins in available_coins.items():

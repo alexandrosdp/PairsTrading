@@ -27,6 +27,8 @@ def generate_back_test_report(prices,**params):
     0.22)]
 
     #Params:
+    initial_capital = params.get("initial_capital")
+    tx_cost= params.get("tx_cost")
     window_size = params.get("window_size")
     entry_threshold = params.get("entry_threshold")
     exit_threshold = params.get("exit_threshold")
@@ -56,9 +58,12 @@ def generate_back_test_report(prices,**params):
     # Generate trading signals (positions) based on the spread's z-score
     positions_series,  win_indexs, loss_indexs, price_changes_S1, price_changes_S2 = backtest_pair_rolling(spread_series,S1,S2,zscore_series, entry_threshold, exit_threshold, stop_loss_threshold)
     
-    initial_capital = 10_000.0
-    #tx_cost= 0.00031 #0.031% transaction cost
-    tx_cost= 0.00025 #0.025% transaction cost
+
+    # Identify trade entry points: position changes from 0 to ±1
+    trade_entries = positions_series[(positions_series != 0) & (positions_series.shift(1) == 0)]
+    long_entries = trade_entries[trade_entries == 1]
+    short_entries = trade_entries[trade_entries == -1]
+
 
     trade_profits, cumulative_profit_series, entry_indices, exit_indices, long_spread_loss_count, short_spread_loss_count, number_of_dual_leg_profits = simulate_strategy_trade_pnl(S1, S2, positions_series, initial_capital, beta_series,tx_cost)
 
@@ -145,7 +150,7 @@ def generate_back_test_report(prices,**params):
         "Exit Threshold": exit_threshold,
         "Stop Loss Threshold": stop_loss_threshold,
         "Initial Capital": initial_capital,
-        "Transaction Cost": tx_cost
+        "Transaction Cost (%)": tx_cost * 100
     }
     parameters_df = pd.DataFrame(list(parameters_used.items()), columns=["", ""])
 
@@ -246,13 +251,18 @@ def generate_back_test_report(prices,**params):
 
         # Page 5: Zscore Spread Time Series and Trading Positions.
         plt.figure(figsize=(11, 8.5))
-        plt.subplot(2, 1, 1)
-        plt.plot(zscore_series, label="Z-Score Spread")
-        plt.title("Spread Series")
-        plt.legend()
-        plt.subplot(2, 1, 2)
-        plt.plot(positions_series, drawstyle='steps-mid', label="Positions")
-        plt.title("Trading Positions")
+        plt.plot(zscore_series, label='Z-Score', color='purple', marker='o')
+        plt.axhline(0, color='grey', linestyle='--', label='Mean')
+        plt.axhline(entry_threshold, color='green', linestyle='--', label='±1.0 Entry threshold')
+        plt.axhline(-entry_threshold, color='green', linestyle='--')
+        plt.axhline(stop_loss_threshold, color='red', linestyle='--', label='±stop_loss_threshold Stop-loss')
+        plt.axhline(-stop_loss_threshold, color='red', linestyle='--')
+
+        plt.title("Z-Score Of Spread With Trade Entries")
+        plt.scatter(long_entries.index, zscore_series.loc[long_entries.index], marker='^', 
+                    color='green', s=100, label='Long Entry')
+        plt.scatter(short_entries.index, zscore_series.loc[short_entries.index], marker='v', 
+                    color='red', s=100, label='Short Entry')
         plt.legend()
         pdf.savefig()
         plt.close()
@@ -264,9 +274,16 @@ def generate_back_test_report(prices,**params):
 
 if __name__ == '__main__':
 
-    prices = pd.read_csv("binance_data/Staked_ETH_Bybit/merged_closing_prices.csv", index_col=0, parse_dates=True)
+    #ETH/SETH
+    #prices = pd.read_csv("binance_data/Staked_ETH_Bybit/merged_closing_prices.csv", index_col=0, parse_dates=True)
+
+    #BTC/WBTC
+    prices = pd.read_csv("binance_data/Wrapped BTC/2024/30m/merged_closing_prices.csv", index_col=0, parse_dates=True)
+
 
     params = {
+    "initial_capital": 10_000.0,
+    "tx_cost": 0.00025,
     "window_size": 336,
     "entry_threshold": 4.0,
     "exit_threshold": 0.1,
