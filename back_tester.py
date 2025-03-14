@@ -767,7 +767,9 @@ def plot_trading_simulation(
         trade_entries (list): List of dictionaries for trade entries with keys: 'time', 'S1', 'S2', 'z', 'position'.
         trade_exits (list): List of dictionaries for trade exits with keys: 'time', 'S1', 'S2', 'z', 'exit_type'.
         window_start, window_end: Optional window slicing for the data.
-    """
+    """ 
+
+
 
 
     # Slice data if window bounds are provided.
@@ -783,10 +785,10 @@ def plot_trading_simulation(
     # #Print entry and exit times zipped together
     # if trade_entries is not None and trade_exits is not None:
 
-    for entry, exit in zip(trade_entries, trade_exits):
+    # for entry, exit in zip(trade_entries, trade_exits):
 
-        print(f"Entry Time: {entry['time']}, Exit Time: {exit['time']}, Exit Type: {exit['exit_type']}")
-    
+    #     print(f"Entry Time: {entry['time']}, Exit Time: {exit['time']}, Exit Type: {exit['exit_type']}")
+
 
 
     
@@ -839,6 +841,10 @@ def plot_trading_simulation(
     ax1.set_ylabel(sym1, color='blue')
     ax2.set_ylabel(sym2, color='red')
     plt.title(f"Underlying Prices: {sym1} and {sym2}")
+
+    print("TRADES:")
+    print("---------------------------------")
+    print(trades)
 
     # Highlight trade intervals.
     for (start_time, end_time, outcome) in trades:
