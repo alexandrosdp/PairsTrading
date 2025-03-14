@@ -350,7 +350,6 @@ if __name__ == "__main__":
     # Example: SELECTED_MONTHS = [1, 2, 12]  # fetch January, February, December of the YEAR
     # If SELECTED_MONTHS is None or an empty list, the entire year is fetched
 
- 
     available_coins = check_binance_availability()
 
     for sector, coins in available_coins.items():
