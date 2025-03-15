@@ -117,7 +117,7 @@ def compute_rolling_zscore(spread_series, window_size):
 # and you want to use a window of, say, 720 observations (e.g., roughly one month for hourly data):
 # zscore_series, roll_mean, roll_std = compute_rolling_zscore(spread_series, window_size=720)
 
-def backtest_pair_rolling(spread_series, S1, S2, zscore, entry_threshold=1.0, exit_threshold=0.1, stop_loss_threshold=2.0):
+def backtest_pair_rolling(spread_series, S1, S2, zscore, entry_threshold=1.0, exit_threshold=0.0, stop_loss_threshold=2.0):
     """
     Generate trading signals based on the rolling z-score of the spread series using a moving window,
     and record the interpolated entry and exit prices (and z-scores) for more accurate profit calculations.
@@ -193,7 +193,7 @@ def backtest_pair_rolling(spread_series, S1, S2, zscore, entry_threshold=1.0, ex
         # Not in a trade.
         if position == 0:
             if stop_out:
-                if abs(current_z) <= exit_threshold:
+                if abs(current_z) <= 0.1: #Allow re-entry if z-score is within -0.10 and 0.10 (close enough to zero)
                     stop_out = False
                 positions.append(0)
                 price_changes_S1.append(0)
@@ -324,7 +324,7 @@ def backtest_pair_rolling(spread_series, S1, S2, zscore, entry_threshold=1.0, ex
         else:
             # A trade is active from a previous iteration.
             if position == 1:  # Long spread trade.
-                if (prev_z is not None) and (prev_z < -exit_threshold) and (current_z >= -exit_threshold):
+                if (prev_z is not None) and (prev_z < -exit_threshold) and (current_z >= -exit_threshold): #If the z-score crosses upward past -exit_threshold.
                     lam = (-exit_threshold - prev_z) / (current_z - prev_z)
                     interpolated_S1 = prev_S1 + lam * (current_S1 - prev_S1)
                     interpolated_S2 = prev_S2 + lam * (current_S2 - prev_S2)
@@ -372,7 +372,7 @@ def backtest_pair_rolling(spread_series, S1, S2, zscore, entry_threshold=1.0, ex
                     price_changes_S2.append(0)
                 positions.append(position)
             elif position == -1:  # Short spread trade.
-                if (prev_z is not None) and (prev_z > exit_threshold) and (current_z <= exit_threshold):
+                if (prev_z is not None) and (prev_z > exit_threshold) and (current_z <= exit_threshold): #If the z-score crosses downward past exit_threshold.
                     lam = (exit_threshold - prev_z) / (current_z - prev_z)
                     interpolated_S1 = prev_S1 + lam * (current_S1 - prev_S1)
                     interpolated_S2 = prev_S2 + lam * (current_S2 - prev_S2)
@@ -496,310 +496,328 @@ def simulate_true_strategy_rolling(S1, S2, positions, beta_series):
     return pnl, cum_pnl
 
 
-# def simulate_strategy_pnl(
-#     S1, 
-#     S2, 
-#     positions, 
-#     beta_series=None, 
-#     initial_capital=1000.0
-# ):
+
+# def simulate_strategy_trade_pnl(S1, S2, positions,initial_capital, beta_series=None, tx_cost=None):
 #     """
-#     Compute daily/cumulative PnL for a pairs strategy that uses a hedge ratio (beta).
-
-#     If beta_series is None, we assume beta=1 at all times.
-#     Otherwise, beta_series[t] is the ratio for day t: 
-#         e.g. if position=+1, we buy shares in S1, 
-#         short beta_series[t]*shares_of_S2.
-
-#     Args:
-#         S1 (pd.Series): Price series for S1
-#         S2 (pd.Series): Price series for S2
-#         positions (pd.Series): 0=flat, +1=long spread, -1=short spread
-#         beta_series (pd.Series or float): The hedge ratio(s). If None => 1.0
-#         initial_capital (float): e.g. 1000 EUR
-
-#     Returns:
-#         daily_pnl (pd.Series)
-#         cum_pnl  (pd.Series)
-#         cum_pnl_pct (pd.Series)
-#     """
-
-#     #The standard pairs logic: If β=2, it means “S1 moves 2 times as much as S2.” So to offset that effect, you hold 2 times as much notional in S2 as you do in S1.
-
-#     # If no beta_series, use 1.0
-#     if beta_series is None:
-#         # Create a series of 1.0 with same index
-#         beta_series = pd.Series(1.0, index=S1.index)
-
-#     # Convert to arrays for speed if you prefer
-#     daily_pnl = []
-
-#     shares_S1_list = []
-#     shares_S2_list = []
-
-#     short_profit_list = []
-
-#     # We'll iterate from i=1..end to compute daily PnL from i-1 -> i
-#     for i in range(1, len(S1)):
-#         prev_pos = positions.iloc[i-1]
-#         if prev_pos == 0:
-#             # no position => daily PnL=0
-#             daily_pnl.append(0.0)
-#             continue
-        
-#         # Price changes
-#         dS1 = S1.iloc[i] - S1.iloc[i-1]
-#         dS2 = S2.iloc[i] - S2.iloc[i-1]
-
-#         # The ratio for day i-1
-#         beta = beta_series.iloc[i-1]
-
-#         # number of shares for each leg
-#         # total capital is initial_capital. We won't re-invest daily
-#         # Let's define a function that for a +1 spread,
-#         # we put half capital in S1, half in S2, but scale S2 by beta.
-#         # One approach:
-#         #   Notional_S1 = initial_capital / (1+beta)
-#         #   Notional_S2 = beta * Notional_S1 = (beta/(1+beta))*initial_capital
-#         # Then shares_S1 = Notional_S1 / price_of_S1
-#         #     shares_S2 = Notional_S2 / price_of_S2
-#         # if pos=+1 => we are long S1, short S2
-#         # if pos=-1 => we are short S1, long S2
-
-#         # compute these for day i-1
-#         #This determines how we allocate our capital between the two assets
-#         Notional_S1 = initial_capital / (1.0 + beta)
-#         Notional_S2 = beta * Notional_S1
-
-#         # share counts, based on the prices from i-1
-#         # We are using the prices from i-1 to determine the number of shares we would have bought/sold
-#         shares_S1 = Notional_S1 / S1.iloc[i-1]
-#         shares_S2 = Notional_S2 / S2.iloc[i-1]
-
-#         shares_S1_list.append(shares_S1)
-#         shares_S2_list.append(shares_S2)
-        
-#         # now the PnL depends on whether pos=+1 or -1
-#         if prev_pos == +1:
-#             # +1 => long S1 => daily PnL from S1 is shares_S1 * dS1
-#             #        short S2 => daily PnL from S2 is shares_S2 * (-dS2)
-
-#             # long_profit = shares_S1 * dS1
-#             # short_profit = shares_S2 * (-dS2)
-#             # day_pnl = long_profit + short_profit
-            
-#             day_pnl = shares_S1 * dS1 + shares_S2 * (-dS2)
-
-            
-#         else:
-#             # prev_pos == -1 => short S1 => daily PnL from S1 => shares_S1 * (-dS1)
-#             #                => long S2 => shares_S2 * dS2
-#             # short_profit = shares_S1 * (-dS1)
-#             # long_profit = shares_S2 * dS2
-#             # day_pnl = short_profit + long_profit
-
-#             day_pnl = shares_S1 * (-dS1) + shares_S2 * dS2
-#            # day_pnl = shares_S1 * (-dS1) + shares_S2 * dS2
-
-#         daily_pnl.append(day_pnl)
-
-#     # daily_pnl is one element shorter than S1, so let's align indexing
-#     daily_pnl_series = pd.Series([0.0] + daily_pnl, index=S1.index)
-
-#     cum_pnl_series = daily_pnl_series.cumsum()
-#     cum_pnl_pct_series = (cum_pnl_series / initial_capital) * 100.0
-
-#     return daily_pnl_series, cum_pnl_series, cum_pnl_pct_series, shares_S1_list, shares_S2_list, 
-
-def simulate_strategy_trade_pnl(S1, S2, positions,initial_capital, beta_series=None, tx_cost=None):
-    """
-    Compute the profit (or loss) for each trade by measuring the price change from the time the trade is opened
-    until it is closed, and adjust for transaction costs if provided.
+#     Compute the profit (or loss) for each trade by measuring the price change from the time the trade is opened
+#     until it is closed, and adjust for transaction costs if provided.
     
-    For a long spread (positions = +1):
+#     For a long spread (positions = +1):
+#       - You go long S1 and short S2.
+#       - At entry, allocate capital as:
+#             Notional_S1 = initial_capital / (1 + beta_entry)
+#             Notional_S2 = beta_entry * Notional_S1.
+#       - Shares are:
+#             shares_S1 = Notional_S1 / S1_entry,
+#             shares_S2 = Notional_S2 / S2_entry.
+#       - Gross profit is:
+#             profit = shares_S1 * (S1_exit - S1_entry) + shares_S2 * (S2_entry - S2_exit).
+    
+#     For a short spread (positions = -1):
+#       - You go short S1 and long S2.
+#       - Gross profit is:
+#             profit = shares_S1 * (S1_entry - S1_exit) + shares_S2 * (S2_exit - S2_entry).
+    
+#     Transaction fees are applied to both the entry and exit of each leg.
+#       - For example, if tx_cost = 0.001 (0.10%), then each trade (buy or sell) on each asset is charged 0.10% of the transaction value.
+    
+#     Args:
+#         S1 (pd.Series): Price series for asset S1.
+#         S2 (pd.Series): Price series for asset S2.
+#         positions (pd.Series): Trading signals (0 = flat, +1 = long spread, -1 = short spread).
+#         beta_series (pd.Series or float, optional): Hedge ratio(s). If None, beta is assumed to be 1.0.
+#         initial_capital (float, optional): The capital allocated per trade (default 1000.0).
+#         tx_cost (float, optional): Transaction cost per trade as a fraction (e.g., 0.001 for 0.10%).
+#                                    If None, no transaction costs are applied.
+    
+#     Returns:
+#         tuple: A tuple containing:
+#             - trade_profits (list): A list of net profit values for each closed trade.
+#             - cumulative_profit (pd.Series): Cumulative profit over time (indexed by trade exit times).
+#             - entry_indices (list): A list of indices (timestamps) when trades were opened.
+#             - exit_indices (list): A list of indices (timestamps) when trades were closed.
+#     """
+    
+#     # If no beta_series is provided, assume beta=1.0.
+#     if beta_series is None:
+#         beta_series = pd.Series(1.0, index=S1.index)
+#     elif not isinstance(beta_series, pd.Series):
+#         beta_series = pd.Series(beta_series, index=S1.index)
+    
+#     trade_profits = []
+#     entry_indices = []
+#     exit_indices = []
+
+#     long_spread = False
+#     short_spread = False
+
+#     long_spread_loss_count = 0
+#     short_spread_loss_count = 0
+
+#     number_of_dual_leg_profits = 0
+    
+#     in_trade = False  # Flag indicating whether a trade is active.
+#     trade_direction = 0  # +1 for long spread, -1 for short spread.
+#     entry_index = None
+#     entry_price_S1 = None
+#     entry_price_S2 = None
+#     beta_entry = None  # Hedge ratio at entry.
+
+    
+#     # Loop over the positions series.
+#     for t in range(len(positions)):
+#         current_pos = positions.iloc[t]
+#         if not in_trade:
+#             # Look for a trade entry: when the position changes from 0 to nonzero.
+#             if current_pos != 0:
+#                 in_trade = True
+#                 trade_direction = current_pos
+
+#                 if trade_direction == 1:
+#                     long_spread = True
+#                 elif trade_direction == -1:
+#                     short_spread = True
+
+
+#                 entry_index = positions.index[t]
+#                 entry_price_S1 = S1.iloc[t]
+#                 entry_price_S2 = S2.iloc[t]
+#                 beta_entry = beta_series.iloc[t]
+#                 entry_indices.append(entry_index)
+#         else:
+#             # A trade is active; check for trade exit (when the position returns to 0).
+#             if current_pos == 0:
+#                 exit_index = positions.index[t]
+#                 exit_price_S1 = S1.iloc[t]
+#                 exit_price_S2 = S2.iloc[t]
+#                 exit_indices.append(exit_index)
+                
+#                 # Compute notional allocation based on initial capital and beta_entry.
+#                 Notional_S1 = initial_capital / (1.0 + beta_entry)
+#                 Notional_S2 = beta_entry * Notional_S1
+
+                
+#                 # Compute share counts at entry.
+#                 shares_S1 = Notional_S1 / entry_price_S1
+#                 shares_S2 = Notional_S2 / entry_price_S2
+
+                
+#                 # Compute gross profit based on trade direction.
+#                 if trade_direction == 1:
+#                     # Long spread: long S1, short S2.
+#                     gross_profit_S1 = shares_S1 * (exit_price_S1 - entry_price_S1)
+#                     gross_profit_S2 = shares_S2 * (entry_price_S2 - exit_price_S2)
+#                     gross_profit = gross_profit_S1 + gross_profit_S2
+
+#                     if (gross_profit_S1 > 0 and gross_profit_S2 > 0):
+
+#                         number_of_dual_leg_profits += 1
+#                         print(f"Dual Leg profit: {gross_profit_S1}, {gross_profit_S2}")
+
+#                     else:
+
+#                         print(f"Dual Leg loss: {gross_profit_S1}, {gross_profit_S2}")
+
+
+#                 elif trade_direction == -1:
+#                     # Short spread: short S1, long S2.
+#                     gross_profit_S1 = shares_S1 * (entry_price_S1 - exit_price_S1)
+#                     gross_profit_S2 = shares_S2 * (exit_price_S2 - entry_price_S2)
+#                     gross_profit = gross_profit_S1 + gross_profit_S2
+
+#                     if (gross_profit/initial_capital).item() < 0:
+
+#                         short_spread_loss_count += 1
+
+#                     if(gross_profit_S1 > 0 and gross_profit_S2 > 0):
+
+#                         number_of_dual_leg_profits += 1
+#                         print(f"Dual Leg profit: {gross_profit_S1}, {gross_profit_S2}")
+#                     else:
+
+#                         print(f"Dual Leg loss: {gross_profit_S1}, {gross_profit_S2}")
+
+#                 else:
+#                     gross_profit = 0.0
+                
+#                 # If transaction costs are provided, calculate fees for each leg at entry and exit.
+#                 if tx_cost is not None:
+#                     fee_S1_entry = tx_cost * (shares_S1 * entry_price_S1)
+#                     fee_S1_exit = tx_cost * (shares_S1 * exit_price_S1)
+#                     fee_S2_entry = tx_cost * (shares_S2 * entry_price_S2)
+#                     fee_S2_exit = tx_cost * (shares_S2 * exit_price_S2)
+#                     total_fees = fee_S1_entry + fee_S1_exit + fee_S2_entry + fee_S2_exit
+#                 else:
+#                     total_fees = 0.0
+                
+                
+#                 #print(f"Trade Profit: {gross_profit}, Total Fees: {total_fees}")
+
+#                 # Net trade profit is gross profit minus total transaction fees.
+#                 net_trade_profit = gross_profit - total_fees
+                
+#                 #If the trade is a loss, increment the loss count
+#                 if net_trade_profit/initial_capital < 0:
+
+#                     if long_spread:
+#                         long_spread_loss_count += 1
+#                     elif short_spread:
+#                         short_spread_loss_count += 1
+                
+
+                
+#                 trade_profits.append(net_trade_profit)
+                
+#                 # Reset trade state.
+#                 in_trade = False
+#                 trade_direction = 0
+#                 entry_index = None
+#                 entry_price_S1 = None
+#                 entry_price_S2 = None
+#                 beta_entry = None
+
+#                 # Reset spread direction flags.
+#                 long_spread = False
+#                 short_spread = False
+                
+                
+#     # Compute cumulative profit from the list of trade profits.
+#     cumulative_profit = np.cumsum(trade_profits)
+#     cumulative_profit_series = pd.Series(cumulative_profit, index=exit_indices)
+    
+#     return trade_profits, cumulative_profit_series, entry_indices, exit_indices, long_spread_loss_count, short_spread_loss_count, number_of_dual_leg_profits
+
+def simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, beta_series, tx_cost):
+    """
+    Compute the profit (or loss) for each trade by measuring the price change from the interpolated
+    entry to the interpolated exit, using the paired trade_entries and trade_exits objects.
+    
+    For a long spread (trade entry 'position' = +1):
       - You go long S1 and short S2.
       - At entry, allocate capital as:
             Notional_S1 = initial_capital / (1 + beta_entry)
             Notional_S2 = beta_entry * Notional_S1.
-      - Shares are:
-            shares_S1 = Notional_S1 / S1_entry,
-            shares_S2 = Notional_S2 / S2_entry.
+      - Shares are calculated using the interpolated entry prices:
+            shares_S1 = Notional_S1 / entry_price_S1,
+            shares_S2 = Notional_S2 / entry_price_S2.
       - Gross profit is:
-            profit = shares_S1 * (S1_exit - S1_entry) + shares_S2 * (S2_entry - S2_exit).
+            profit = shares_S1 * (exit_price_S1 - entry_price_S1) + shares_S2 * (entry_price_S2 - exit_price_S2).
     
-    For a short spread (positions = -1):
+    For a short spread (trade entry 'position' = -1):
       - You go short S1 and long S2.
       - Gross profit is:
-            profit = shares_S1 * (S1_entry - S1_exit) + shares_S2 * (S2_exit - S2_entry).
+            profit = shares_S1 * (entry_price_S1 - exit_price_S1) + shares_S2 * (exit_price_S2 - entry_price_S2).
     
-    Transaction fees are applied to both the entry and exit of each leg.
+    Transaction fees are applied to both the entry and exit of each leg:
       - For example, if tx_cost = 0.001 (0.10%), then each trade (buy or sell) on each asset is charged 0.10% of the transaction value.
     
     Args:
         S1 (pd.Series): Price series for asset S1.
         S2 (pd.Series): Price series for asset S2.
-        positions (pd.Series): Trading signals (0 = flat, +1 = long spread, -1 = short spread).
+        trade_entries (list): List of dictionaries for trade entries with keys:
+                              'time', 'S1', 'S2', 'z', 'position'.
+        trade_exits (list): List of dictionaries for trade exits with keys:
+                            'time', 'S1', 'S2', 'z', 'exit_type'.
+        initial_capital (float): The capital allocated per trade.
         beta_series (pd.Series or float, optional): Hedge ratio(s). If None, beta is assumed to be 1.0.
-        initial_capital (float, optional): The capital allocated per trade (default 1000.0).
         tx_cost (float, optional): Transaction cost per trade as a fraction (e.g., 0.001 for 0.10%).
                                    If None, no transaction costs are applied.
     
     Returns:
         tuple: A tuple containing:
             - trade_profits (list): A list of net profit values for each closed trade.
-            - cumulative_profit (pd.Series): Cumulative profit over time (indexed by trade exit times).
-            - entry_indices (list): A list of indices (timestamps) when trades were opened.
-            - exit_indices (list): A list of indices (timestamps) when trades were closed.
+            - cumulative_profit_series (pd.Series): Cumulative profit over time (indexed by trade exit times).
+            - entry_times (list): A list of trade entry timestamps.
+            - exit_times (list): A list of trade exit timestamps.
     """
-    
-    # If no beta_series is provided, assume beta=1.0.
-    if beta_series is None:
-        beta_series = pd.Series(1.0, index=S1.index)
-    elif not isinstance(beta_series, pd.Series):
-        beta_series = pd.Series(beta_series, index=S1.index)
+
+
+    # # If beta_series is not provided, use 1.0.
+    # if beta_series is None:
+    #     beta_series = pd.Series(1.0, index=S1.index)
+    # elif not isinstance(beta_series, pd.Series):
+    #     beta_series = pd.Series(beta_series, index=S1.index)
     
     trade_profits = []
-    entry_indices = []
-    exit_indices = []
-
-    long_spread = False
-    short_spread = False
-
+    entry_times = []
+    exit_times = []
+    
+    # For tracking loss counts and dual-leg profits (if needed).
     long_spread_loss_count = 0
     short_spread_loss_count = 0
-
     number_of_dual_leg_profits = 0
-    
-    in_trade = False  # Flag indicating whether a trade is active.
-    trade_direction = 0  # +1 for long spread, -1 for short spread.
-    entry_index = None
-    entry_price_S1 = None
-    entry_price_S2 = None
-    beta_entry = None  # Hedge ratio at entry.
 
-    
-    # Loop over the positions series.
-    for t in range(len(positions)):
-        current_pos = positions.iloc[t]
-        if not in_trade:
-            # Look for a trade entry: when the position changes from 0 to nonzero.
-            if current_pos != 0:
-                in_trade = True
-                trade_direction = current_pos
+    # Loop over the paired trades.
+    # It is assumed that trade_entries and trade_exits are already properly paired in order.
+    for entry, exit in zip(trade_entries, trade_exits):
+        entry_time = pd.to_datetime(entry['time'])
+        exit_time = pd.to_datetime(exit['time'])
+        
+        # Determine beta at the entry time using the provided beta_series.
+        beta_entry = beta_series.loc[entry_time] if entry_time in beta_series.index else print("Error: Beta not found at entry time.")
 
-                if trade_direction == 1:
-                    long_spread = True
-                elif trade_direction == -1:
-                    short_spread = True
+        # Notional allocation.
+        Notional_S1 = initial_capital / (1.0 + beta_entry)
+        Notional_S2 = beta_entry * Notional_S1
 
+        # Compute share counts based on the interpolated entry prices.
+        shares_S1 = Notional_S1 / entry['S1']
+        shares_S2 = Notional_S2 / entry['S2']
 
-                entry_index = positions.index[t]
-                entry_price_S1 = S1.iloc[t]
-                entry_price_S2 = S2.iloc[t]
-                beta_entry = beta_series.iloc[t]
-                entry_indices.append(entry_index)
+        # Calculate gross profit depending on trade direction.
+        if entry['position'] == 1:  # Long spread: long S1, short S2.
+            gross_profit_S1 = shares_S1 * (exit['S1'] - entry['S1'])
+            gross_profit_S2 = shares_S2 * (entry['S2'] - exit['S2'])
+            gross_profit = gross_profit_S1 + gross_profit_S2
+            # For diagnostic purposes, you can check dual leg performance.
+            if (gross_profit_S1 > 0 and gross_profit_S2 > 0):
+                number_of_dual_leg_profits += 1
+        elif entry['position'] == -1:  # Short spread: short S1, long S2.
+            gross_profit_S1 = shares_S1 * (entry['S1'] - exit['S1'])
+            gross_profit_S2 = shares_S2 * (exit['S2'] - entry['S2'])
+            gross_profit = gross_profit_S1 + gross_profit_S2
+            if (gross_profit_S1 > 0 and gross_profit_S2 > 0):
+                number_of_dual_leg_profits += 1
         else:
-            # A trade is active; check for trade exit (when the position returns to 0).
-            if current_pos == 0:
-                exit_index = positions.index[t]
-                exit_price_S1 = S1.iloc[t]
-                exit_price_S2 = S2.iloc[t]
-                exit_indices.append(exit_index)
-                
-                # Compute notional allocation based on initial capital and beta_entry.
-                Notional_S1 = initial_capital / (1.0 + beta_entry)
-                Notional_S2 = beta_entry * Notional_S1
+            gross_profit = 0.0
 
-                
-                # Compute share counts at entry.
-                shares_S1 = Notional_S1 / entry_price_S1
-                shares_S2 = Notional_S2 / entry_price_S2
+        # Compute transaction fees if provided.
+        if tx_cost is not None:
+            fee_S1_entry = tx_cost * (shares_S1 * entry['S1'])
+            fee_S1_exit  = tx_cost * (shares_S1 * exit['S1'])
+            fee_S2_entry = tx_cost * (shares_S2 * entry['S2'])
+            fee_S2_exit  = tx_cost * (shares_S2 * exit['S2'])
+            total_fees = fee_S1_entry + fee_S1_exit + fee_S2_entry + fee_S2_exit
+        else:
+            total_fees = 0.0
 
-                
-                # Compute gross profit based on trade direction.
-                if trade_direction == 1:
-                    # Long spread: long S1, short S2.
-                    gross_profit_S1 = shares_S1 * (exit_price_S1 - entry_price_S1)
-                    gross_profit_S2 = shares_S2 * (entry_price_S2 - exit_price_S2)
-                    gross_profit = gross_profit_S1 + gross_profit_S2
+        net_trade_profit = gross_profit - total_fees
+        trade_profits.append(net_trade_profit)
+        entry_times.append(entry_time)
+        exit_times.append(exit_time)
 
-                    if (gross_profit_S1 > 0 and gross_profit_S2 > 0):
+        # Count losses.
+        if net_trade_profit < 0:
+            if entry['position'] == 1:
+                long_spread_loss_count += 1
+            elif entry['position'] == -1:
+                short_spread_loss_count += 1
 
-                        number_of_dual_leg_profits += 1
-                        print(f"Dual Leg profit: {gross_profit_S1}, {gross_profit_S2}")
-
-                    else:
-
-                        print(f"Dual Leg loss: {gross_profit_S1}, {gross_profit_S2}")
-
-
-                elif trade_direction == -1:
-                    # Short spread: short S1, long S2.
-                    gross_profit_S1 = shares_S1 * (entry_price_S1 - exit_price_S1)
-                    gross_profit_S2 = shares_S2 * (exit_price_S2 - entry_price_S2)
-                    gross_profit = gross_profit_S1 + gross_profit_S2
-
-                    if (gross_profit/initial_capital).item() < 0:
-
-                        short_spread_loss_count += 1
-
-                    if(gross_profit_S1 > 0 and gross_profit_S2 > 0):
-
-                        number_of_dual_leg_profits += 1
-                        print(f"Dual Leg profit: {gross_profit_S1}, {gross_profit_S2}")
-                    else:
-
-                        print(f"Dual Leg loss: {gross_profit_S1}, {gross_profit_S2}")
-
-                else:
-                    gross_profit = 0.0
-                
-                # If transaction costs are provided, calculate fees for each leg at entry and exit.
-                if tx_cost is not None:
-                    fee_S1_entry = tx_cost * (shares_S1 * entry_price_S1)
-                    fee_S1_exit = tx_cost * (shares_S1 * exit_price_S1)
-                    fee_S2_entry = tx_cost * (shares_S2 * entry_price_S2)
-                    fee_S2_exit = tx_cost * (shares_S2 * exit_price_S2)
-                    total_fees = fee_S1_entry + fee_S1_exit + fee_S2_entry + fee_S2_exit
-                else:
-                    total_fees = 0.0
-                
-                
-                #print(f"Trade Profit: {gross_profit}, Total Fees: {total_fees}")
-
-                # Net trade profit is gross profit minus total transaction fees.
-                net_trade_profit = gross_profit - total_fees
-                
-                #If the trade is a loss, increment the loss count
-                if net_trade_profit/initial_capital < 0:
-
-                    if long_spread:
-                        long_spread_loss_count += 1
-                    elif short_spread:
-                        short_spread_loss_count += 1
-                
-
-                
-                trade_profits.append(net_trade_profit)
-                
-                # Reset trade state.
-                in_trade = False
-                trade_direction = 0
-                entry_index = None
-                entry_price_S1 = None
-                entry_price_S2 = None
-                beta_entry = None
-
-                # Reset spread direction flags.
-                long_spread = False
-                short_spread = False
-                
-                
-    # Compute cumulative profit from the list of trade profits.
+    # Compute cumulative profit series.
     cumulative_profit = np.cumsum(trade_profits)
-    cumulative_profit_series = pd.Series(cumulative_profit, index=exit_indices)
-    
-    return trade_profits, cumulative_profit_series, entry_indices, exit_indices, long_spread_loss_count, short_spread_loss_count, number_of_dual_leg_profits
+    cumulative_profit_series = pd.Series(cumulative_profit, index=exit_times)
+
+    # Print diagnostics.
+    print(f"Total trades: {len(trade_profits)}")
+    print(f"Number of profitable trades (proft > 0): {sum(1 for profit in trade_profits if profit > 0)}")
+    print(f"Number of non-profitable trades (proft < 0): {sum(1 for profit in trade_profits if profit < 0)}")
+    print(f"Total return €: {cumulative_profit[-1]:.2f}")
+    print(f"Total return %: {(cumulative_profit[-1] / initial_capital) * 100:.2f}%")
+    print(f"Long spread losses: {long_spread_loss_count}, Short spread losses: {short_spread_loss_count}")
+    print(f"Number of Dual-leg profitable trades: {number_of_dual_leg_profits}")
+
+    return trade_profits, cumulative_profit_series, entry_times, exit_times
+
 
 # Example usage:
 # daily_pnl, cum_pnl, entry_indices, exit_indices = simulate_strategy_trade_pnl(S1, S2, positions, beta_series, initial_capital=1000.0, tx_cost=0.001)
