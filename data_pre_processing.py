@@ -5,6 +5,7 @@ import statsmodels.api as sm
 from statsmodels.tsa.stattools import coint
 import datetime
 import matplotlib.pyplot as plt
+import re  # Import regex to extract numbers from timeframe
 
 # --------------------------
 # 1. Data Collection Functions
@@ -209,6 +210,91 @@ def merge_ohlc_closing_prices(directory):
     else:
         print("⚠️ No valid data found.")
         return None
+
+
+def resample_data(directory, timeframe, output_directory):
+
+    """
+    Converts all 1-minute OHLC data CSVs in a directory to a specified higher timeframe.
+
+    :param directory: Path to the folder containing 1-minute CSV files.
+    :param timeframe: The higher timeframe in minutes (e.g., 30 for 30-minute, 60 for 1-hour).
+    :param output_directory: Path to save the converted CSV files.
+    """
+
+            # T	Minute
+            # H	Hourly
+            # D	Daily
+            # W	Weekly
+            # M	Month end
+            # MS	Month start
+            # Q	Quarter end
+            # A	Year end
+
+    # Ensure output directory exists
+    os.makedirs(output_directory, exist_ok=True)
+
+    # Get all CSV files in the directory
+    csv_files = [f for f in os.listdir(directory) if f.endswith(".csv")]
+
+    if not csv_files:
+        print("⚠️ No CSV files found in the directory.")
+        return
+
+    print(f"📂 Found {len(csv_files)} CSV files. Converting to {timeframe}-minute timeframe...")
+
+    for file in csv_files:
+        file_path = os.path.join(directory, file)
+        
+        try:
+            # Read CSV
+            df = pd.read_csv(file_path, parse_dates=["Open Time"], index_col="Open Time")
+
+            # # Ensure 'Open Time' column exists
+            # if "Open Time" not in df.columns:
+            #     print(f"⚠️ Skipping {file} - 'Open Time' column missing.")
+            #     continue
+
+            df_resampled = df.resample(timeframe).agg({
+            "Open": "first",  # first value in the 5-minute period
+            "High": "max",    # highest value in the 5-minute period
+            "Low": "min",     # lowest value in the 5-minute period
+            "Close": "last",  # last value in the 5-minute period
+            "Volume": "sum"   # sum of volumes over the period
+            })
+
+            # Optionally, drop any periods where the market was closed (if any row has a NaN in 'Open')
+            df_resampled.dropna(subset=["Open"], inplace=True)
+
+            # Save the new CSV
+            df_resampled.reset_index(inplace=True)  # Ensure 'Open Time' is a column
+
+            # # Extract only the numeric part from timeframe (e.g., "5T" → "5min", "1H" → "60min")
+            # timeframe_numeric = re.findall(r'\d+', timeframe)  # Extract numbers from timeframe string
+            # if not timeframe_numeric:  # Default to "1min" if extraction fails
+            #     timeframe_numeric = "1min"
+            # else:
+            #     timeframe_numeric = f"{timeframe_numeric[0]}min"
+            
+            # Modify filename by replacing the old timeframe with the new one
+            filename_parts = file.split("_")
+            filename_parts[-1] = f"{timeframe}.csv"  # Replace last part (e.g., "1m.csv") with new timeframe
+            new_filename = "_".join(filename_parts)
+
+            output_path = os.path.join(output_directory, new_filename)
+
+
+
+            df_resampled.to_csv(output_path, index=False)
+            print(f"✅ Converted {file} -> {output_path}")
+            
+        except Exception as e:
+            print(f"❌ Error processing {file}: {e}")
+
+    print("🎉 Conversion complete!")
+
+# Example usage
+# convert_all_to_higher_timeframe("binance_data/1min", 30, "binance_data/30min")
 
 
 
