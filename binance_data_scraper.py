@@ -30,11 +30,25 @@ SECTOR_COIN_LIST = {
     # "RONUSDT", "AXSUSDT", "EGLDUSDT"
     # ]
 
-    "BTC_Cross_Currencies": [
-        "BTCJPY",   # Bitcoin JPY
-        "BTCEUR",    # Bitcoin EUR
-        "BTCUSDT",   # Bitcoin USD
-    ]
+    # "BTC_Cross_Currencies": [
+    #     "BTCJPY",   # Bitcoin JPY
+    #     "BTCEUR",    # Bitcoin EUR
+    #     "BTCUSDT",   # Bitcoin USD
+    # ]
+
+    #ETH and ETC
+
+    # "ETC_and_ETH": [
+    #     "ETHUSDT",   # Ethereum
+    #     "ETCUSDT"    # Ethereum Classic
+    # ]
+
+    #SOL and BNSOL
+
+    # "SOL_and_BNSOL": [
+    #     "SOLUSDT",   # Solana
+    #     "BNSOLUSDT"  # BN Solana
+    # ]
 
 
 
@@ -63,10 +77,10 @@ SECTOR_COIN_LIST = {
     #     "TRUUSDT",   # TrueFi
     # ]
 
-    # "Wrapped BTC": [
-    #     "BTCUSDT",   # Bitcoin
-    #     "WBTCUSDT",  # Wrapped Bitcoin
-    # ]
+    "Wrapped BTC": [
+        "BTCUSDT",   # Bitcoin
+        "WBTCUSDT",  # Wrapped Bitcoin
+    ]
 
     # "Hard_Fork_Btc": [
     #     "BTCUSDT",   # Bitcoin
@@ -88,10 +102,10 @@ SECTOR_COIN_LIST = {
 }
 
 INTERVAL = "1m"  # Binance interval ("1m", "1h", "1d", etc.)
-YEAR = 2024     # Year for data
+YEAR = 2024    # Year for data
 
 # If None (or empty list), fetch entire year. Otherwise, specify a list of months (1..12), e.g. [1, 2, 7]
-SELECTED_MONTHS = [4,5,6,7,8,9,10,11,12] # Fetch only October (10) and November (11)
+SELECTED_MONTHS = [] # Fetch only October (10) and November (11)
 
 # Directory to store data
 CSV_DIR = "binance_csvs"
