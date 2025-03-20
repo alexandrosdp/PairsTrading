@@ -50,6 +50,19 @@ SECTOR_COIN_LIST = {
     #     "BNSOLUSDT"  # BN Solana
     # ]
 
+    #ETH and RPL (Rocket Pool) --> Staked ETH
+
+    # "ETH_and_RPL": [
+    #     "ETHUSDT",   # Ethereum
+    #     "RPLUSDT"    # Rocket Pool
+    # ]
+
+    #"ETH and WBETH (Wrapped Beacon Ethereum) --> Staked ETH"
+
+    "ETH_and_WBETH": [
+        #"ETHUSDT",   # Ethereum
+        "WBETHUSDT"  # Wrapped Beacon Ethereum
+    ]
 
 
 
@@ -77,10 +90,10 @@ SECTOR_COIN_LIST = {
     #     "TRUUSDT",   # TrueFi
     # ]
 
-    "Wrapped BTC": [
-        "BTCUSDT",   # Bitcoin
-        "WBTCUSDT",  # Wrapped Bitcoin
-    ]
+    # "Wrapped BTC": [
+    #     "BTCUSDT",   # Bitcoin
+    #     "WBTCUSDT",  # Wrapped Bitcoin
+    # ]
 
     # "Hard_Fork_Btc": [
     #     "BTCUSDT",   # Bitcoin

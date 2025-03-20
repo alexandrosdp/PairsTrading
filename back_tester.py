@@ -117,323 +117,499 @@ def compute_rolling_zscore(spread_series, window_size):
 # and you want to use a window of, say, 720 observations (e.g., roughly one month for hourly data):
 # zscore_series, roll_mean, roll_std = compute_rolling_zscore(spread_series, window_size=720)
 
-def backtest_pair_rolling(spread_series, S1, S2, zscore, entry_threshold=1.0, exit_threshold=0.0, stop_loss_threshold=2.0):
-    """
-    Generate trading signals based on the rolling z-score of the spread series using a moving window,
-    and record the interpolated entry and exit prices (and z-scores) for more accurate profit calculations.
-    
-    This version uses linear interpolation to estimate the exact prices at which the z-score 
-    reaches the entry threshold and then immediately checks if an exit (normal or stop-loss) 
-    is triggered in the same time step.
-    
-    Trading rules:
-      - When no position is open (position == 0):
-          * If the z-score crosses above entry_threshold, enter a short spread (position = -1).
-          * If the z-score crosses below -entry_threshold, enter a long spread (position = +1).
-      - When in a position:
-          * For a long spread (position = +1), exit when z-score crosses upward past -exit_threshold.
-          * For a short spread (position = -1), exit when z-score crosses downward past exit_threshold.
-      - Stop-loss conditions:
-          * For a long spread, exit if z-score goes below -stop_loss_threshold.
-          * For a short spread, exit if z-score goes above stop_loss_threshold.
-    
-    Returns:
-        positions (pd.Series): Trading signals over time.
-        trade_entries (list): List of dictionaries for trade entries.
-        trade_exits (list): List of dictionaries for trade exits.
-        price_changes_S1 (list): List of percentage price changes for S1 from entry to exit.
-        price_changes_S2 (list): List of percentage price changes for S2 from entry to exit.
-    """
 
+def backtest_pair_rolling(
+    spread_series, S1, S2, zscore, entry_threshold=1.0, exit_threshold=0.0, stop_loss_threshold=2.0
+):
+    """
+    A bar-based backtest that does NOT do linear interpolation,
+    
+    Trading rules (discrete bar):
+      - We check the z-score at each bar's close:
+          * If position == 0 (flat) and zscore >= +entry_threshold, open short spread at this bar's price (position = -1).
+          * If position == 0 (flat) and zscore <= -entry_threshold, open long spread at this bar's price (position = +1).
+      - If position == +1 (long spread) and zscore >= -exit_threshold => exit (win).
+        * Or if zscore <= -stop_loss_threshold => exit (loss).
+      - If position == -1 (short spread) and zscore <= +exit_threshold => exit (win).
+        * Or if zscore >= +stop_loss_threshold => exit (loss).
+
+    Returns:
+        positions (pd.Series): The discrete position (+1, -1, or 0) at each bar.
+        trade_entries (list): A list of entry dicts: {'time','S1','S2','z','position'}.
+        trade_exits (list): A list of exit dicts:  {'time','S1','S2','z','exit_type'}.
+
+    Note: No sub-bar interpolation or same-bar entry/exit logic.
+          We simply act on each bar's z-score once we have it.
+    """
 
     positions = []
-    position = 0  # 1 for long spread, -1 for short spread, 0 for flat.
-    trade_entries = []
-    trade_exits = []
-    price_changes_S1 = []
-    price_changes_S2 = []
-    stop_out = False
+    position  = 0   # +1 (long spread), -1 (short spread), or 0 (flat)
+    stop_out  = False
 
-    # Variables to hold the interpolated entry values.
+    trade_entries = []
+    trade_exits   = []
+
     entry_price_S1 = None
     entry_price_S2 = None
-    entry_z = None  # z-score at entry
+    entry_z        = None
 
-    # For interpolation, keep track of previous values.
-    prev_z = None
-    prev_S1 = None
-    prev_S2 = None
-    prev_index = None
+    z_index = zscore.index
 
-    for t, current_index in enumerate(zscore.index):
-        current_z = zscore.loc[current_index]
+    for t, current_index in enumerate(z_index):
+        current_z  = zscore.loc[current_index]
         current_S1 = S1.loc[current_index]
         current_S2 = S2.loc[current_index]
 
-        # Initialization: first time step.
+        # Initialization: first bar
         if t == 0:
             positions.append(0)
-            prev_z = current_z
-            prev_S1 = current_S1
-            prev_S2 = current_S2
-            prev_index = current_index
             continue
 
-        # If current z is not valid, remain flat.
+        # If z-score is NaN, remain in the current position
         if pd.isna(current_z):
-            positions.append(0)
-            price_changes_S1.append(0)
-            price_changes_S2.append(0)
-            prev_z = current_z
-            prev_S1 = current_S1
-            prev_S2 = current_S2
-            prev_index = current_index
+            positions.append(position)
             continue
 
-        # Not in a trade.
+        # CASE 1: No open position
         if position == 0:
             if stop_out:
-                if abs(current_z) <= 0.1: #Allow re-entry if z-score is within -0.10 and 0.10 (close enough to zero)
+                # If you want to prevent re-entry until z is near zero:
+                if abs(current_z) <= 0.1:
                     stop_out = False
+                # remain flat
                 positions.append(0)
-                price_changes_S1.append(0)
-                price_changes_S2.append(0)
+
             else:
-                # Check for entry conditions with interpolation.
-                # Long spread entry: when z crosses below -entry_threshold.
-                if (prev_z is not None) and (prev_z > -entry_threshold) and (current_z <= -entry_threshold):
-                    lam_entry = (-entry_threshold - prev_z) / (current_z - prev_z)
-                    interpolated_entry_S1 = prev_S1 + lam_entry * (current_S1 - prev_S1)
-                    interpolated_entry_S2 = prev_S2 + lam_entry * (current_S2 - prev_S2)
-                    entry_price_S1 = interpolated_entry_S1
-                    entry_price_S2 = interpolated_entry_S2
-                    entry_z = -entry_threshold
-                    position = 1
+                # If zscore >= +entry_threshold => short spread
+                if current_z >= entry_threshold:
+                    position      = -1
+                    entry_price_S1 = current_S1
+                    entry_price_S2 = current_S2
+                    entry_z        = current_z
                     trade_entries.append({
                         'time': current_index,
-                        'S1': entry_price_S1,
-                        'S2': entry_price_S2,
-                        'z': entry_z,
-                        'position': 1
+                        'S1':   entry_price_S1,
+                        'S2':   entry_price_S2,
+                        'z':    entry_z,
+                        'position': position
                     })
-                    # Immediately check for exit conditions within same iteration.
-                    # For a long spread, normal exit if current_z >= -exit_threshold.
-                    if current_z >= -exit_threshold:
-                        lam_exit = (-exit_threshold - (-entry_threshold)) / (current_z - (-entry_threshold))
-                        interpolated_exit_S1 = entry_price_S1 + lam_exit * (current_S1 - entry_price_S1)
-                        interpolated_exit_S2 = entry_price_S2 + lam_exit * (current_S2 - entry_price_S2)
-                        exit_z = -exit_threshold
-                        trade_exits.append({
-                            'time': current_index,
-                            'S1': interpolated_exit_S1,
-                            'S2': interpolated_exit_S2,
-                            'z': exit_z,
-                            'exit_type': 'win'
-                        })
-                        change_S1 = (interpolated_exit_S1 - entry_price_S1) / entry_price_S1 * 100
-                        change_S2 = (entry_price_S2 - interpolated_exit_S2) / entry_price_S2 * 100
-                        price_changes_S1.append(change_S1)
-                        price_changes_S2.append(change_S2)
-                        position = 0  # trade closes immediately
-                    # Or, stop-loss exit if current_z <= -stop_loss_threshold.
-                    elif current_z <= -stop_loss_threshold:
-                        lam_exit = (-stop_loss_threshold - (-entry_threshold)) / (current_z - (-entry_threshold))
-                        interpolated_exit_S1 = entry_price_S1 + lam_exit * (current_S1 - entry_price_S1)
-                        interpolated_exit_S2 = entry_price_S2 + lam_exit * (current_S2 - entry_price_S2)
-                        exit_z = -stop_loss_threshold
-                        trade_exits.append({
-                            'time': current_index,
-                            'S1': interpolated_exit_S1,
-                            'S2': interpolated_exit_S2,
-                            'z': exit_z,
-                            'exit_type': 'loss'
-                        })
-                        change_S1 = (interpolated_exit_S1 - entry_price_S1) / entry_price_S1 * 100
-                        change_S2 = (entry_price_S2 - interpolated_exit_S2) / entry_price_S2 * 100
-                        price_changes_S1.append(change_S1)
-                        price_changes_S2.append(change_S2)
-                        stop_out = True
-                        position = 0
                     positions.append(position)
-                    # If no immediate exit condition is met, position remains active.
-                    if position != 0:
-                        price_changes_S1.append(0)
-                        price_changes_S2.append(0)
-                # Short spread entry: when z crosses above entry_threshold.
-                elif (prev_z is not None) and (prev_z < entry_threshold) and (current_z >= entry_threshold):
-                    lam_entry = (entry_threshold - prev_z) / (current_z - prev_z)
-                    interpolated_entry_S1 = prev_S1 + lam_entry * (current_S1 - prev_S1)
-                    interpolated_entry_S2 = prev_S2 + lam_entry * (current_S2 - prev_S2)
-                    entry_price_S1 = interpolated_entry_S1
-                    entry_price_S2 = interpolated_entry_S2
-                    entry_z = entry_threshold
-                    position = -1
+
+                # If zscore <= -entry_threshold => long spread
+                elif current_z <= -entry_threshold:
+                    position       = 1
+                    entry_price_S1 = current_S1
+                    entry_price_S2 = current_S2
+                    entry_z        = current_z
                     trade_entries.append({
                         'time': current_index,
-                        'S1': entry_price_S1,
-                        'S2': entry_price_S2,
-                        'z': entry_z,
-                        'position': -1
+                        'S1':   entry_price_S1,
+                        'S2':   entry_price_S2,
+                        'z':    entry_z,
+                        'position': position
                     })
-                    # Immediately check for exit conditions.
-                    # For a short spread, normal exit if current_z <= exit_threshold.
-                    if current_z <= exit_threshold:
-                        lam_exit = (exit_threshold - entry_threshold) / (current_z - entry_threshold)
-                        interpolated_exit_S1 = entry_price_S1 + lam_exit * (current_S1 - entry_price_S1)
-                        interpolated_exit_S2 = entry_price_S2 + lam_exit * (current_S2 - entry_price_S2)
-                        exit_z = exit_threshold
-                        trade_exits.append({
-                            'time': current_index,
-                            'S1': interpolated_exit_S1,
-                            'S2': interpolated_exit_S2,
-                            'z': exit_z,
-                            'exit_type': 'win'
-                        })
-                        change_S1 = (entry_price_S1 - interpolated_exit_S1) / entry_price_S1 * 100
-                        change_S2 = (interpolated_exit_S2 - entry_price_S2) / entry_price_S2 * 100
-                        price_changes_S1.append(change_S1)
-                        price_changes_S2.append(change_S2)
-                        position = 0
-                    # Or, stop-loss exit if current_z >= stop_loss_threshold.
-                    elif current_z >= stop_loss_threshold:
-                        lam_exit = (stop_loss_threshold - entry_threshold) / (current_z - entry_threshold)
-                        interpolated_exit_S1 = entry_price_S1 + lam_exit * (current_S1 - entry_price_S1)
-                        interpolated_exit_S2 = entry_price_S2 + lam_exit * (current_S2 - entry_price_S2)
-                        exit_z = stop_loss_threshold
-                        trade_exits.append({
-                            'time': current_index,
-                            'S1': interpolated_exit_S1,
-                            'S2': interpolated_exit_S2,
-                            'z': exit_z,
-                            'exit_type': 'loss'
-                        })
-                        change_S1 = (entry_price_S1 - interpolated_exit_S1) / entry_price_S1 * 100
-                        change_S2 = (interpolated_exit_S2 - entry_price_S2) / entry_price_S2 * 100
-                        price_changes_S1.append(change_S1)
-                        price_changes_S2.append(change_S2)
-                        stop_out = True
-                        position = 0
                     positions.append(position)
-                    if position != 0:
-                        price_changes_S1.append(0)
-                        price_changes_S2.append(0)
                 else:
+                    # no entry
                     positions.append(0)
-                    price_changes_S1.append(0)
-                    price_changes_S2.append(0)
+
+        # CASE 2: We already have a position
         else:
-            # A trade is active from a previous iteration.
-            if position == 1:  # Long spread trade.
-                if (prev_z is not None) and (prev_z < -exit_threshold) and (current_z >= -exit_threshold): #If the z-score crosses upward past -exit_threshold.
-                    lam = (-exit_threshold - prev_z) / (current_z - prev_z)
-                    interpolated_S1 = prev_S1 + lam * (current_S1 - prev_S1)
-                    interpolated_S2 = prev_S2 + lam * (current_S2 - prev_S2)
-                    exit_price_S1 = interpolated_S1
-                    exit_price_S2 = interpolated_S2
-                    exit_z = -exit_threshold
+            if position == 1:  # LONG SPREAD
+                # Normal exit => if zscore >= -exit_threshold => 'win'
+                if current_z >= -exit_threshold:
                     trade_exits.append({
                         'time': current_index,
-                        'S1': exit_price_S1,
-                        'S2': exit_price_S2,
-                        'z': exit_z,
+                        'S1':   current_S1,
+                        'S2':   current_S2,
+                        'z':    current_z,
                         'exit_type': 'win'
                     })
-                    change_S1 = (exit_price_S1 - entry_price_S1) / entry_price_S1 * 100
-                    change_S2 = (entry_price_S2 - exit_price_S2) / entry_price_S2 * 100
-                    price_changes_S1.append(change_S1)
-                    price_changes_S2.append(change_S2)
-                    position = 0
+                    position      = 0
                     entry_price_S1 = None
                     entry_price_S2 = None
-                elif (prev_z is not None) and (prev_z > -stop_loss_threshold) and (current_z <= -stop_loss_threshold):
-                    lam = (-stop_loss_threshold - prev_z) / (current_z - prev_z)
-                    interpolated_S1 = prev_S1 + lam * (current_S1 - prev_S1)
-                    interpolated_S2 = prev_S2 + lam * (current_S2 - prev_S2)
-                    exit_price_S1 = interpolated_S1
-                    exit_price_S2 = interpolated_S2
-                    exit_z = -stop_loss_threshold
+                    stop_out      = False
+                # Stop-loss => if zscore <= -stop_loss_threshold => 'loss'
+                elif current_z <= -stop_loss_threshold:
                     trade_exits.append({
                         'time': current_index,
-                        'S1': exit_price_S1,
-                        'S2': exit_price_S2,
-                        'z': exit_z,
+                        'S1':   current_S1,
+                        'S2':   current_S2,
+                        'z':    current_z,
                         'exit_type': 'loss'
                     })
-                    change_S1 = (exit_price_S1 - entry_price_S1) / entry_price_S1 * 100
-                    change_S2 = (entry_price_S2 - exit_price_S2) / entry_price_S2 * 100
-                    price_changes_S1.append(change_S1)
-                    price_changes_S2.append(change_S2)
-                    stop_out = True
-                    position = 0
+                    position       = 0
                     entry_price_S1 = None
                     entry_price_S2 = None
-                else:
-                    price_changes_S1.append(0)
-                    price_changes_S2.append(0)
+                    stop_out       = True
                 positions.append(position)
-            elif position == -1:  # Short spread trade.
-                if (prev_z is not None) and (prev_z > exit_threshold) and (current_z <= exit_threshold): #If the z-score crosses downward past exit_threshold.
-                    lam = (exit_threshold - prev_z) / (current_z - prev_z)
-                    interpolated_S1 = prev_S1 + lam * (current_S1 - prev_S1)
-                    interpolated_S2 = prev_S2 + lam * (current_S2 - prev_S2)
-                    exit_price_S1 = interpolated_S1
-                    exit_price_S2 = interpolated_S2
-                    exit_z = exit_threshold
+
+            elif position == -1:  # SHORT SPREAD
+                # Normal exit => if zscore <= exit_threshold => 'win'
+                if current_z <= exit_threshold:
                     trade_exits.append({
                         'time': current_index,
-                        'S1': exit_price_S1,
-                        'S2': exit_price_S2,
-                        'z': exit_z,
+                        'S1':   current_S1,
+                        'S2':   current_S2,
+                        'z':    current_z,
                         'exit_type': 'win'
                     })
-                    change_S1 = (entry_price_S1 - exit_price_S1) / entry_price_S1 * 100
-                    change_S2 = (exit_price_S2 - entry_price_S2) / entry_price_S2 * 100
-                    price_changes_S1.append(change_S1)
-                    price_changes_S2.append(change_S2)
-                    position = 0
+                    position       = 0
                     entry_price_S1 = None
                     entry_price_S2 = None
-                elif (prev_z is not None) and (prev_z < stop_loss_threshold) and (current_z >= stop_loss_threshold):
-                    lam = (stop_loss_threshold - prev_z) / (current_z - prev_z)
-                    interpolated_S1 = prev_S1 + lam * (current_S1 - prev_S1)
-                    interpolated_S2 = prev_S2 + lam * (current_S2 - prev_S2)
-                    exit_price_S1 = interpolated_S1
-                    exit_price_S2 = interpolated_S2
-                    exit_z = stop_loss_threshold
+                    stop_out       = False
+                # Stop-loss => if zscore >= stop_loss_threshold => 'loss'
+                elif current_z >= stop_loss_threshold:
                     trade_exits.append({
                         'time': current_index,
-                        'S1': exit_price_S1,
-                        'S2': exit_price_S2,
-                        'z': exit_z,
+                        'S1':   current_S1,
+                        'S2':   current_S2,
+                        'z':    current_z,
                         'exit_type': 'loss'
                     })
-                    change_S1 = (entry_price_S1 - exit_price_S1) / entry_price_S1 * 100
-                    change_S2 = (exit_price_S2 - entry_price_S2) / entry_price_S2 * 100
-                    price_changes_S1.append(change_S1)
-                    price_changes_S2.append(change_S2)
-                    stop_out = True
-                    position = 0
+                    position       = 0
                     entry_price_S1 = None
                     entry_price_S2 = None
-                else:
-                    price_changes_S1.append(0)
-                    price_changes_S2.append(0)
+                    stop_out       = True
                 positions.append(position)
 
-        prev_z = current_z
-        prev_S1 = current_S1
-        prev_S2 = current_S2
-        prev_index = current_index
-
+    # Convert positions list to Series
     positions = pd.Series(positions, index=spread_series.index)
 
-    print(f"Total trades closed: {len(trade_exits)} (Wins={sum(1 for e in trade_exits if e['exit_type']=='win')}, Losses={sum(1 for e in trade_exits if e['exit_type']=='loss')})")
-    total_trades = len(trade_exits)
-    if total_trades > 0:
-        win_rate = sum(1 for e in trade_exits if e['exit_type']=='win') / total_trades
-        print(f"Win rate: {win_rate:.2f}")
+    # Print basic stats
+    total_closed = len(trade_exits)
+    wins  = sum(1 for e in trade_exits if e['exit_type'] == 'win')
+    losses= sum(1 for e in trade_exits if e['exit_type'] == 'loss')
 
-    return positions, trade_entries, trade_exits, price_changes_S1, price_changes_S2
+    print(f"Total trades closed: {total_closed} (Wins={wins}, Losses={losses})")
+    if total_closed > 0:
+        print(f"Win rate: {wins / total_closed:.2f}")
+
+    return positions, trade_entries, trade_exits
+
+
+
+#OLD BACK TEST FUNCTION WITH INTERPOLATION
+#-------------------------------------------------------------
+
+
+# def backtest_pair_rolling(spread_series, S1, S2, zscore, entry_threshold=1.0, exit_threshold=0.0, stop_loss_threshold=2.0):
+#     """
+#     Generate trading signals based on the rolling z-score of the spread series using a moving window,
+#     and record the interpolated entry and exit prices (and z-scores) for more accurate profit calculations.
+    
+#     This version uses linear interpolation to estimate the exact prices at which the z-score 
+#     reaches the entry threshold and then immediately checks if an exit (normal or stop-loss) 
+#     is triggered in the same time step.
+    
+#     Trading rules:
+#       - When no position is open (position == 0):
+#           * If the z-score crosses above entry_threshold, enter a short spread (position = -1).
+#           * If the z-score crosses below -entry_threshold, enter a long spread (position = +1).
+#       - When in a position:
+#           * For a long spread (position = +1), exit when z-score crosses upward past -exit_threshold.
+#           * For a short spread (position = -1), exit when z-score crosses downward past exit_threshold.
+#       - Stop-loss conditions:
+#           * For a long spread, exit if z-score goes below -stop_loss_threshold.
+#           * For a short spread, exit if z-score goes above stop_loss_threshold.
+    
+#     Returns:
+#         positions (pd.Series): Trading signals over time.
+#         trade_entries (list): List of dictionaries for trade entries.
+#         trade_exits (list): List of dictionaries for trade exits.
+#         price_changes_S1 (list): List of percentage price changes for S1 from entry to exit.
+#         price_changes_S2 (list): List of percentage price changes for S2 from entry to exit.
+#     """
+
+
+#     positions = []
+#     position = 0  # 1 for long spread, -1 for short spread, 0 for flat.
+#     trade_entries = []
+#     trade_exits = []
+#     price_changes_S1 = []
+#     price_changes_S2 = []
+#     stop_out = False
+
+#     # Variables to hold the interpolated entry values.
+#     entry_price_S1 = None
+#     entry_price_S2 = None
+#     entry_z = None  # z-score at entry
+
+#     # For interpolation, keep track of previous values.
+#     prev_z = None
+#     prev_S1 = None
+#     prev_S2 = None
+#     prev_index = None
+
+#     for t, current_index in enumerate(zscore.index):
+#         current_z = zscore.loc[current_index]
+#         current_S1 = S1.loc[current_index]
+#         current_S2 = S2.loc[current_index]
+
+#         # Initialization: first time step.
+#         if t == 0:
+#             positions.append(0)
+#             prev_z = current_z
+#             prev_S1 = current_S1
+#             prev_S2 = current_S2
+#             prev_index = current_index
+#             continue
+
+#         # If current z is not valid, remain flat.
+#         if pd.isna(current_z):
+#             positions.append(0)
+#             price_changes_S1.append(0)
+#             price_changes_S2.append(0)
+#             prev_z = current_z
+#             prev_S1 = current_S1
+#             prev_S2 = current_S2
+#             prev_index = current_index
+#             continue
+
+#         # Not in a trade.
+#         if position == 0:
+#             if stop_out:
+#                 if abs(current_z) <= 0.1: #Allow re-entry if z-score is within -0.10 and 0.10 (close enough to zero)
+#                     stop_out = False
+#                 positions.append(0)
+#                 price_changes_S1.append(0)
+#                 price_changes_S2.append(0)
+#             else:
+#                 # Check for entry conditions with interpolation.
+#                 # Long spread entry: when z crosses below -entry_threshold.
+#                 if (prev_z is not None) and (prev_z > -entry_threshold) and (current_z <= -entry_threshold):
+#                     lam_entry = (-entry_threshold - prev_z) / (current_z - prev_z)
+#                     interpolated_entry_S1 = prev_S1 + lam_entry * (current_S1 - prev_S1)
+#                     interpolated_entry_S2 = prev_S2 + lam_entry * (current_S2 - prev_S2)
+#                     entry_price_S1 = interpolated_entry_S1
+#                     entry_price_S2 = interpolated_entry_S2
+#                     entry_z = -entry_threshold
+#                     position = 1
+#                     trade_entries.append({
+#                         'time': current_index,
+#                         'S1': entry_price_S1,
+#                         'S2': entry_price_S2,
+#                         'z': entry_z,
+#                         'position': 1
+#                     })
+#                     # Immediately check for exit conditions within same iteration.
+#                     # For a long spread, normal exit if current_z >= -exit_threshold.
+#                     if current_z >= -exit_threshold:
+#                         lam_exit = (-exit_threshold - (-entry_threshold)) / (current_z - (-entry_threshold))
+#                         interpolated_exit_S1 = entry_price_S1 + lam_exit * (current_S1 - entry_price_S1)
+#                         interpolated_exit_S2 = entry_price_S2 + lam_exit * (current_S2 - entry_price_S2)
+#                         exit_z = -exit_threshold
+#                         trade_exits.append({
+#                             'time': current_index,
+#                             'S1': interpolated_exit_S1,
+#                             'S2': interpolated_exit_S2,
+#                             'z': exit_z,
+#                             'exit_type': 'win'
+#                         })
+#                         change_S1 = (interpolated_exit_S1 - entry_price_S1) / entry_price_S1 * 100
+#                         change_S2 = (entry_price_S2 - interpolated_exit_S2) / entry_price_S2 * 100
+#                         price_changes_S1.append(change_S1)
+#                         price_changes_S2.append(change_S2)
+#                         position = 0  # trade closes immediately
+#                     # Or, stop-loss exit if current_z <= -stop_loss_threshold.
+#                     elif current_z <= -stop_loss_threshold:
+#                         lam_exit = (-stop_loss_threshold - (-entry_threshold)) / (current_z - (-entry_threshold))
+#                         interpolated_exit_S1 = entry_price_S1 + lam_exit * (current_S1 - entry_price_S1)
+#                         interpolated_exit_S2 = entry_price_S2 + lam_exit * (current_S2 - entry_price_S2)
+#                         exit_z = -stop_loss_threshold
+#                         trade_exits.append({
+#                             'time': current_index,
+#                             'S1': interpolated_exit_S1,
+#                             'S2': interpolated_exit_S2,
+#                             'z': exit_z,
+#                             'exit_type': 'loss'
+#                         })
+#                         change_S1 = (interpolated_exit_S1 - entry_price_S1) / entry_price_S1 * 100
+#                         change_S2 = (entry_price_S2 - interpolated_exit_S2) / entry_price_S2 * 100
+#                         price_changes_S1.append(change_S1)
+#                         price_changes_S2.append(change_S2)
+#                         stop_out = True
+#                         position = 0
+#                     positions.append(position)
+#                     # If no immediate exit condition is met, position remains active.
+#                     if position != 0:
+#                         price_changes_S1.append(0)
+#                         price_changes_S2.append(0)
+#                 # Short spread entry: when z crosses above entry_threshold.
+#                 elif (prev_z is not None) and (prev_z < entry_threshold) and (current_z >= entry_threshold):
+#                     lam_entry = (entry_threshold - prev_z) / (current_z - prev_z)
+#                     interpolated_entry_S1 = prev_S1 + lam_entry * (current_S1 - prev_S1)
+#                     interpolated_entry_S2 = prev_S2 + lam_entry * (current_S2 - prev_S2)
+#                     entry_price_S1 = interpolated_entry_S1
+#                     entry_price_S2 = interpolated_entry_S2
+#                     entry_z = entry_threshold
+#                     position = -1
+#                     trade_entries.append({
+#                         'time': current_index,
+#                         'S1': entry_price_S1,
+#                         'S2': entry_price_S2,
+#                         'z': entry_z,
+#                         'position': -1
+#                     })
+#                     # Immediately check for exit conditions.
+#                     # For a short spread, normal exit if current_z <= exit_threshold.
+#                     if current_z <= exit_threshold:
+#                         lam_exit = (exit_threshold - entry_threshold) / (current_z - entry_threshold)
+#                         interpolated_exit_S1 = entry_price_S1 + lam_exit * (current_S1 - entry_price_S1)
+#                         interpolated_exit_S2 = entry_price_S2 + lam_exit * (current_S2 - entry_price_S2)
+#                         exit_z = exit_threshold
+#                         trade_exits.append({
+#                             'time': current_index,
+#                             'S1': interpolated_exit_S1,
+#                             'S2': interpolated_exit_S2,
+#                             'z': exit_z,
+#                             'exit_type': 'win'
+#                         })
+#                         change_S1 = (entry_price_S1 - interpolated_exit_S1) / entry_price_S1 * 100
+#                         change_S2 = (interpolated_exit_S2 - entry_price_S2) / entry_price_S2 * 100
+#                         price_changes_S1.append(change_S1)
+#                         price_changes_S2.append(change_S2)
+#                         position = 0
+#                     # Or, stop-loss exit if current_z >= stop_loss_threshold.
+#                     elif current_z >= stop_loss_threshold:
+#                         lam_exit = (stop_loss_threshold - entry_threshold) / (current_z - entry_threshold)
+#                         interpolated_exit_S1 = entry_price_S1 + lam_exit * (current_S1 - entry_price_S1)
+#                         interpolated_exit_S2 = entry_price_S2 + lam_exit * (current_S2 - entry_price_S2)
+#                         exit_z = stop_loss_threshold
+#                         trade_exits.append({
+#                             'time': current_index,
+#                             'S1': interpolated_exit_S1,
+#                             'S2': interpolated_exit_S2,
+#                             'z': exit_z,
+#                             'exit_type': 'loss'
+#                         })
+#                         change_S1 = (entry_price_S1 - interpolated_exit_S1) / entry_price_S1 * 100
+#                         change_S2 = (interpolated_exit_S2 - entry_price_S2) / entry_price_S2 * 100
+#                         price_changes_S1.append(change_S1)
+#                         price_changes_S2.append(change_S2)
+#                         stop_out = True
+#                         position = 0
+#                     positions.append(position)
+#                     if position != 0:
+#                         price_changes_S1.append(0)
+#                         price_changes_S2.append(0)
+#                 else:
+#                     positions.append(0)
+#                     price_changes_S1.append(0)
+#                     price_changes_S2.append(0)
+#         else:
+#             # A trade is active from a previous iteration.
+#             if position == 1:  # Long spread trade.
+#                 if (prev_z is not None) and (prev_z < -exit_threshold) and (current_z >= -exit_threshold): #If the z-score crosses upward past -exit_threshold.
+#                     lam = (-exit_threshold - prev_z) / (current_z - prev_z)
+#                     interpolated_S1 = prev_S1 + lam * (current_S1 - prev_S1)
+#                     interpolated_S2 = prev_S2 + lam * (current_S2 - prev_S2)
+#                     exit_price_S1 = interpolated_S1
+#                     exit_price_S2 = interpolated_S2
+#                     exit_z = -exit_threshold
+#                     trade_exits.append({
+#                         'time': current_index,
+#                         'S1': exit_price_S1,
+#                         'S2': exit_price_S2,
+#                         'z': exit_z,
+#                         'exit_type': 'win'
+#                     })
+#                     change_S1 = (exit_price_S1 - entry_price_S1) / entry_price_S1 * 100
+#                     change_S2 = (entry_price_S2 - exit_price_S2) / entry_price_S2 * 100
+#                     price_changes_S1.append(change_S1)
+#                     price_changes_S2.append(change_S2)
+#                     position = 0
+#                     entry_price_S1 = None
+#                     entry_price_S2 = None
+#                 elif (prev_z is not None) and (prev_z > -stop_loss_threshold) and (current_z <= -stop_loss_threshold):
+#                     lam = (-stop_loss_threshold - prev_z) / (current_z - prev_z)
+#                     interpolated_S1 = prev_S1 + lam * (current_S1 - prev_S1)
+#                     interpolated_S2 = prev_S2 + lam * (current_S2 - prev_S2)
+#                     exit_price_S1 = interpolated_S1
+#                     exit_price_S2 = interpolated_S2
+#                     exit_z = -stop_loss_threshold
+#                     trade_exits.append({
+#                         'time': current_index,
+#                         'S1': exit_price_S1,
+#                         'S2': exit_price_S2,
+#                         'z': exit_z,
+#                         'exit_type': 'loss'
+#                     })
+#                     change_S1 = (exit_price_S1 - entry_price_S1) / entry_price_S1 * 100
+#                     change_S2 = (entry_price_S2 - exit_price_S2) / entry_price_S2 * 100
+#                     price_changes_S1.append(change_S1)
+#                     price_changes_S2.append(change_S2)
+#                     stop_out = True
+#                     position = 0
+#                     entry_price_S1 = None
+#                     entry_price_S2 = None
+#                 else:
+#                     price_changes_S1.append(0)
+#                     price_changes_S2.append(0)
+#                 positions.append(position)
+#             elif position == -1:  # Short spread trade.
+#                 if (prev_z is not None) and (prev_z > exit_threshold) and (current_z <= exit_threshold): #If the z-score crosses downward past exit_threshold.
+#                     lam = (exit_threshold - prev_z) / (current_z - prev_z)
+#                     interpolated_S1 = prev_S1 + lam * (current_S1 - prev_S1)
+#                     interpolated_S2 = prev_S2 + lam * (current_S2 - prev_S2)
+#                     exit_price_S1 = interpolated_S1
+#                     exit_price_S2 = interpolated_S2
+#                     exit_z = exit_threshold
+#                     trade_exits.append({
+#                         'time': current_index,
+#                         'S1': exit_price_S1,
+#                         'S2': exit_price_S2,
+#                         'z': exit_z,
+#                         'exit_type': 'win'
+#                     })
+#                     change_S1 = (entry_price_S1 - exit_price_S1) / entry_price_S1 * 100
+#                     change_S2 = (exit_price_S2 - entry_price_S2) / entry_price_S2 * 100
+#                     price_changes_S1.append(change_S1)
+#                     price_changes_S2.append(change_S2)
+#                     position = 0
+#                     entry_price_S1 = None
+#                     entry_price_S2 = None
+#                 elif (prev_z is not None) and (prev_z < stop_loss_threshold) and (current_z >= stop_loss_threshold):
+#                     lam = (stop_loss_threshold - prev_z) / (current_z - prev_z)
+#                     interpolated_S1 = prev_S1 + lam * (current_S1 - prev_S1)
+#                     interpolated_S2 = prev_S2 + lam * (current_S2 - prev_S2)
+#                     exit_price_S1 = interpolated_S1
+#                     exit_price_S2 = interpolated_S2
+#                     exit_z = stop_loss_threshold
+#                     trade_exits.append({
+#                         'time': current_index,
+#                         'S1': exit_price_S1,
+#                         'S2': exit_price_S2,
+#                         'z': exit_z,
+#                         'exit_type': 'loss'
+#                     })
+#                     change_S1 = (entry_price_S1 - exit_price_S1) / entry_price_S1 * 100
+#                     change_S2 = (exit_price_S2 - entry_price_S2) / entry_price_S2 * 100
+#                     price_changes_S1.append(change_S1)
+#                     price_changes_S2.append(change_S2)
+#                     stop_out = True
+#                     position = 0
+#                     entry_price_S1 = None
+#                     entry_price_S2 = None
+#                 else:
+#                     price_changes_S1.append(0)
+#                     price_changes_S2.append(0)
+#                 positions.append(position)
+
+#         prev_z = current_z
+#         prev_S1 = current_S1
+#         prev_S2 = current_S2
+#         prev_index = current_index
+
+#     positions = pd.Series(positions, index=spread_series.index)
+
+#     print(f"Total trades closed: {len(trade_exits)} (Wins={sum(1 for e in trade_exits if e['exit_type']=='win')}, Losses={sum(1 for e in trade_exits if e['exit_type']=='loss')})")
+#     total_trades = len(trade_exits)
+#     if total_trades > 0:
+#         win_rate = sum(1 for e in trade_exits if e['exit_type']=='win') / total_trades
+#         print(f"Win rate: {win_rate:.2f}")
+
+#     return positions, trade_entries, trade_exits, price_changes_S1, price_changes_S2
 
 
 
@@ -444,56 +620,56 @@ def backtest_pair_rolling(spread_series, S1, S2, zscore, entry_threshold=1.0, ex
 
 
 
-def simulate_true_strategy_rolling(S1, S2, positions, beta_series):
-    """
-    Simulate the true performance of a pairs trading strategy using a dynamic (rolling) hedge ratio.
+# def simulate_true_strategy_rolling(S1, S2, positions, beta_series):
+#     """
+#     Simulate the true performance of a pairs trading strategy using a dynamic (rolling) hedge ratio.
     
-    In this strategy:
-      - A long spread (position = +1) means:
-          * Long 1 unit of S1
-          * Short beta_series[t] units of S2 at time t
-      - A short spread (position = -1) means:
-          * Short 1 unit of S1
-          * Long beta_series[t] units of S2 at time t
+#     In this strategy:
+#       - A long spread (position = +1) means:
+#           * Long 1 unit of S1
+#           * Short beta_series[t] units of S2 at time t
+#       - A short spread (position = -1) means:
+#           * Short 1 unit of S1
+#           * Long beta_series[t] units of S2 at time t
     
-    The profit or loss from a trade between time t-1 and t is computed as:
-        For a long spread:
-            pnl = (S1[t] - S1[t-1]) - beta_series[t-1] * (S2[t] - S2[t-1])
-        For a short spread:
-            pnl = -(S1[t] - S1[t-1]) + beta_series[t-1] * (S2[t] - S2[t-1])
+#     The profit or loss from a trade between time t-1 and t is computed as:
+#         For a long spread:
+#             pnl = (S1[t] - S1[t-1]) - beta_series[t-1] * (S2[t] - S2[t-1])
+#         For a short spread:
+#             pnl = -(S1[t] - S1[t-1]) + beta_series[t-1] * (S2[t] - S2[t-1])
     
-    We use the previous period's position (i.e. positions.shift(1)) and the previous period's
-    beta (i.e. beta_series.shift(1)) to avoid lookahead bias.
+#     We use the previous period's position (i.e. positions.shift(1)) and the previous period's
+#     beta (i.e. beta_series.shift(1)) to avoid lookahead bias.
     
-    Parameters:
-        S1 (pd.Series): Time series of asset 1 prices.
-        S2 (pd.Series): Time series of asset 2 prices.
-        positions (pd.Series): Trading signals (1 for long spread, -1 for short spread, 0 for no position).
-        beta_series (pd.Series): A time series of hedge ratios computed using a rolling regression.
+#     Parameters:
+#         S1 (pd.Series): Time series of asset 1 prices.
+#         S2 (pd.Series): Time series of asset 2 prices.
+#         positions (pd.Series): Trading signals (1 for long spread, -1 for short spread, 0 for no position).
+#         beta_series (pd.Series): A time series of hedge ratios computed using a rolling regression.
     
-    Returns:
-        tuple: A tuple containing:
-            - pnl (pd.Series): The period-by-period profit and loss of the strategy.
-            - cum_pnl (pd.Series): The cumulative profit and loss over time.
-    """
-    # Calculate the changes in asset prices.
-    delta_S1 = S1.diff()
-    delta_S2 = S2.diff()
+#     Returns:
+#         tuple: A tuple containing:
+#             - pnl (pd.Series): The period-by-period profit and loss of the strategy.
+#             - cum_pnl (pd.Series): The cumulative profit and loss over time.
+#     """
+#     # Calculate the changes in asset prices.
+#     delta_S1 = S1.diff()
+#     delta_S2 = S2.diff()
     
-    # Shift positions and beta_series by one period to avoid lookahead bias.
-    shifted_positions = positions.shift(1)
-    shifted_beta = beta_series.shift(1)
+#     # Shift positions and beta_series by one period to avoid lookahead bias.
+#     shifted_positions = positions.shift(1)
+#     shifted_beta = beta_series.shift(1)
     
-    # Compute the period-by-period PnL using the dynamic beta.
-    # For a long spread (position = 1), pnl = (ΔS1) - beta * (ΔS2).
-    # For a short spread (position = -1), pnl = -(ΔS1) + beta * (ΔS2).
-    pnl = shifted_positions * (delta_S1 - shifted_beta * delta_S2)
-    pnl = pnl.fillna(0)
+#     # Compute the period-by-period PnL using the dynamic beta.
+#     # For a long spread (position = 1), pnl = (ΔS1) - beta * (ΔS2).
+#     # For a short spread (position = -1), pnl = -(ΔS1) + beta * (ΔS2).
+#     pnl = shifted_positions * (delta_S1 - shifted_beta * delta_S2)
+#     pnl = pnl.fillna(0)
     
-    # Compute cumulative PnL.
-    cum_pnl = pnl.cumsum()
+#     # Compute cumulative PnL.
+#     cum_pnl = pnl.cumsum()
     
-    return pnl, cum_pnl
+#     return pnl, cum_pnl
 
 
 
@@ -1077,6 +1253,10 @@ def plot_trading_simulation(
 #-------------------------------------------------------------------------------
 #                      Old Functions (Kept for Reference)
 #-------------------------------------------------------------------------------
+
+
+
+
 
 
 # def compute_spread(S1, S2):
