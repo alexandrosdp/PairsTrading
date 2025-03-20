@@ -144,6 +144,7 @@ def backtest_pair_rolling(
 
     positions = []
     position  = 0   # +1 (long spread), -1 (short spread), or 0 (flat)
+    stopped_out_position = 0 #Store the that you were in when you were stopped out
     stop_out  = False
 
     trade_entries = []
@@ -173,11 +174,27 @@ def backtest_pair_rolling(
         # CASE 1: No open position
         if position == 0:
             if stop_out:
-                # If you want to prevent re-entry until z is near zero:
-                if abs(current_z) <= 0.1:
-                    stop_out = False
-                # remain flat
-                positions.append(0)
+                
+                #If you were in a long position, you can re-enter if the z-score is equal to or crosses the zero line from below
+                if stopped_out_position == 1:
+
+                    if current_z >= exit_threshold:
+                        stop_out = False
+                        stopped_out_position = 0    
+                    positions.append(0)
+
+                #If you were in a short position, you can re-enter if the z-score is equal to or crosses the zero line from above
+                elif stopped_out_position == -1:
+                    if current_z <= -exit_threshold:
+                        stop_out = False
+                        stopped_out_position = 0
+                    positions.append(0)
+
+                # # If you want to prevent re-entry until z is near zero:
+                # if abs(current_z) <= 0.1:
+                #     stop_out = False
+                # # remain flat
+                # positions.append(0)
 
             else:
                 # If zscore >= +entry_threshold => short spread
@@ -238,6 +255,7 @@ def backtest_pair_rolling(
                         'z':    current_z,
                         'exit_type': 'loss'
                     })
+                    stopped_out_position = 1
                     position       = 0
                     entry_price_S1 = None
                     entry_price_S2 = None
@@ -267,6 +285,7 @@ def backtest_pair_rolling(
                         'z':    current_z,
                         'exit_type': 'loss'
                     })
+                    stopped_out_position = -1
                     position       = 0
                     entry_price_S1 = None
                     entry_price_S2 = None
