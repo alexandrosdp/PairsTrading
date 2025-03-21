@@ -1116,9 +1116,9 @@ def plot_trading_simulation(
     #             trade_start = None
     #             current_pos = 0
 
-    print(f"Number of trade entries: {len(trade_entries) if trade_entries is not None else 'N/A'}")
-    print(f"Number of trade exits: {len(trade_exits) if trade_exits is not None else 'N/A'}")
-    print(f"Total paired trades: {len(trades)}")
+    # print(f"Number of trade entries: {len(trade_entries) if trade_entries is not None else 'N/A'}")
+    # print(f"Number of trade exits: {len(trade_exits) if trade_exits is not None else 'N/A'}")
+    # print(f"Total paired trades: {len(trades)}")
     
     plt.figure(figsize=(15, 20))
 
@@ -1133,7 +1133,7 @@ def plot_trading_simulation(
     ax2.set_ylabel(sym2, color='red')
     plt.title(f"Underlying Prices: {sym1} and {sym2}")
 
-    print("Trades in window:")
+    #print("Trades in window:")
     # Highlight each trade interval.
     i = 0
     for (start_time, end_time, outcome) in trades:

@@ -6,10 +6,58 @@ from back_tester import *
 import itertools
 import pandas as pd
 import numpy as np
+from experiments import *
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import os
 from matplotlib.backends.backend_pdf import PdfPages
+
+
+def calculate_avg_abs_pct_reversion(trade_entries, trade_exits):
+    """
+    Calculate the average absolute percentage reversion from trade entry to trade exit
+    for both asset price series (S1 and S2), using the interpolated trade data.
+    
+    Args:
+        trade_entries (list): List of dictionaries for trade entries.
+            Each dict should have keys: 'time', 'S1', 'S2', 'z', 'position'
+        trade_exits (list): List of dictionaries for trade exits.
+            Each dict should have keys: 'time', 'S1', 'S2', 'z', 'exit_type'
+    
+    Returns:
+        overall_avg (float): The average of the average absolute percentage changes for S1 and S2.
+    """
+    S1_pct_changes = []
+    S2_pct_changes = []
+    
+    # Loop over paired trade entries and exits.
+    for entry, exit in zip(trade_entries, trade_exits):
+        entry_S1 = entry['S1']
+        entry_S2 = entry['S2']
+        exit_S1 = exit['S1']
+        exit_S2 = exit['S2']
+        
+        # Calculate absolute percentage change for each asset.
+        pct_change_S1 = np.abs((exit_S1 - entry_S1) / entry_S1 * 100)
+        pct_change_S2 = np.abs((exit_S2 - entry_S2) / entry_S2 * 100)
+        
+        S1_pct_changes.append(pct_change_S1)
+        S2_pct_changes.append(pct_change_S2)
+    
+    # Compute the average absolute percentage change for S1 and S2.
+    avg_abs_S1 = np.mean(S1_pct_changes) if S1_pct_changes else 0
+    avg_abs_S2 = np.mean(S2_pct_changes) if S2_pct_changes else 0
+    
+    # Overall average is the average of the two.
+    overall_avg = (avg_abs_S1 + avg_abs_S2) / 2
+    
+    print(f"Average absolute S1 price change percent: {avg_abs_S1:.2f}%")
+    print(f"Average absolute S2 price change percent: {avg_abs_S2:.2f}%")
+    print(f"Average of average absolute price changes: {overall_avg:.2f}%")
+    
+    return overall_avg
+
+
 
 
 def generate_back_test_report(prices,**params):
@@ -44,104 +92,80 @@ def generate_back_test_report(prices,**params):
     cointegrated_pairs, window_results, pair_corr, pass_fraction, avg_pvalue = find_cointegrated_pairs_windows(prices, high_corr_pairs, significance, window_size, min_pass_fraction)
 
     sym1, sym2 = prices.columns
-    print(f"\nTesting strategy on pair: {sym1} and {sym2}...")
+    print(f"\nTesting strategy on pair: {sym1} and {sym2} ...")
     S1 = prices[sym1]
     S2 = prices[sym2]
-    
+
     # Compute the spread series and beta_series 
     spread_series, beta_series, alpha_series = compute_spread_series(S1, S2, window_size)
     #print(f"Hedge ratio (beta) for {sym1} ~ {sym2}: {beta:.4f}")
-    
+
     # Compute rolling z-score using the provided helper function.
     zscore_series, rolling_mean, rolling_std = compute_rolling_zscore(spread_series, window_size)
-    
+
     # Generate trading signals (positions) based on the spread's z-score
-    positions_series,  win_indexs, loss_indexs, price_changes_S1, price_changes_S2 = backtest_pair_rolling(spread_series,S1,S2,zscore_series, entry_threshold, exit_threshold, stop_loss_threshold)
-    
-
-    # Identify trade entry points: position changes from 0 to ±1
-    trade_entries = positions_series[(positions_series != 0) & (positions_series.shift(1) == 0)]
-    long_entries = trade_entries[trade_entries == 1]
-    short_entries = trade_entries[trade_entries == -1]
+    positions, trade_entries, trade_exits = backtest_pair_rolling(spread_series,S1,S2,zscore_series, entry_threshold, exit_threshold, stop_loss_threshold)
 
 
-    trade_profits, cumulative_profit_series, entry_indices, exit_indices, long_spread_loss_count, short_spread_loss_count, number_of_dual_leg_profits = simulate_strategy_trade_pnl(S1, S2, positions_series, initial_capital, beta_series,tx_cost)
+    # # Identify trade entry points: position changes from 0 to ±1
+    # trade_entries = positions_series[(positions_series != 0) & (positions_series.shift(1) == 0)]
+    # long_entries = trade_entries[trade_entries == 1]
+    # short_entries = trade_entries[trade_entries == -1]
 
-    #------------------------------------
-    #Average Absolute Percentage Reversion
-    #------------------------------------
-
-
-    #Get prices at the start and end of the first trade
-    S1_price_start = S1[entry_indices]
-    S2_price_start = S2[entry_indices]
-
-    S1_price_end = S1.loc[exit_indices]
-    S2_price_end = S2.loc[exit_indices]
-
-
-    #Calculate the price changes by converting the series to numpy arrays
-    S1_price_start = S1_price_start.to_numpy()
-    S2_price_start = S2_price_start.to_numpy()
-
-    S1_price_end = S1_price_end.to_numpy()
-    S2_price_end = S2_price_end.to_numpy()
-
-    print("BEFORE ALIGNMENT")
-
-    #Make sure the arrays have the same shape
-    print(S1_price_start.shape)
-    print(S2_price_start.shape)
-
-
-    print(S1_price_end.shape)
-    print(S2_price_end.shape)
-
-
-    if S1_price_start.shape > S1_price_end.shape:
-        S1_price_start = S1_price_start[:len(S1_price_end)]
-
-    if S2_price_start.shape > S2_price_end.shape:
-        S2_price_start = S2_price_start[:len(S2_price_end)]
-    
-    print("AFTER ALIGNMENT")
-
-    #Make sure the arrays have the same shape
-    print(S1_price_start.shape)
-    print(S2_price_start.shape)
-
-    print(S1_price_end.shape)
-    print(S2_price_end.shape)
-
-    #Get the price changes
-    S1_price_change = S1_price_end - S1_price_start
-    S2_price_change = S2_price_end - S2_price_start
-
-    #Get percentage price changes
-    S1_price_change_percent = S1_price_change/S1_price_start * 100
-    S2_price_change_percent = S2_price_change/S2_price_start * 100
-
-    #Get absolute percentage price changes
-    S1_price_change_percent_abs = np.abs(S1_price_change_percent)
-    S2_price_change_percent_abs = np.abs(S2_price_change_percent)
-
-
-    avg_abs_s1_price_change_percent = np.mean(S1_price_change_percent_abs)
-    avg_abs_s2_price_change_percent = np.mean(S2_price_change_percent_abs)
-
-    Average_Absolute_Percentage_Reversion = (avg_abs_s1_price_change_percent + avg_abs_s2_price_change_percent)/2
+    trade_profits, cumulative_profit_series, entry_times, exit_times = simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, beta_series, tx_cost)
 
     #--------------------------------------------------------------------
-    # Other Performance Metrics
+    # Performance Metrics
     #--------------------------------------------------------------------
-    total_trades = len(win_indexs) + len(loss_indexs)
-    win_rate = len(win_indexs) / total_trades if total_trades > 0 else 0
-    total_return_pct = (cumulative_profit_series.iloc[-1] / initial_capital) * 100 if total_trades > 0 else 0
+
+    
+    total_trades = len(trade_profits)
+    total_closed = len(trade_exits)
+    wins  = sum(1 for e in trade_exits if e['exit_type'] == 'win')
+    win_rate = (wins / total_closed) 
+
+    #losses= sum(1 for e in trade_exits if e['exit_type'] == 'loss')
+    
+    total_return_pct = (cumulative_profit_series.iloc[-1] / initial_capital) * 100 
+
+    overall_avg_reversion = calculate_avg_abs_pct_reversion(trade_entries, trade_exits)
     
     # Compute maximum drawdown:
     running_max = cumulative_profit_series.cummax()
     drawdown = running_max - cumulative_profit_series
     max_drawdown = drawdown.max()
+
+    #Experiments
+
+    print(f"Running threshold experiment ...")
+    entry_stop_map = {
+    "1": (1, 2),
+    "2": (2, 3),  
+    "3": (3, 4),
+    "4": (4, 5),
+    "5": (5, 6)
+    }
+
+    percentage_returns_list_thresholds = threshold_experiment(prices,entry_stop_map,initial_capital)
+
+    print(f"Running transaction cost experiment ...")
+
+    #Create transaction costs list from Binance (Maker fees)
+    tx_costs = {
+    "Regular User": 0.001000,
+    "VIP 1": 0.000900,
+    "VIP 2": 0.000800,
+    "VIP 3": 0.000400,
+   # "VIP 4": 0.000400,
+    "VIP 5": 0.000250,
+    "VIP 6": 0.000200,
+    "VIP 7": 0.000190,
+    "VIP 8": 0.000160,
+    "VIP 9": 0.000110
+    }
+
+    percentage_returns_list_transaction_costs = transaction_cost_experiment(prices,tx_costs,initial_capital)
+
 
     # Prepare parameters used in the back-test as a dictionary.
     parameters_used = {
@@ -152,6 +176,7 @@ def generate_back_test_report(prices,**params):
         "Initial Capital": initial_capital,
         "Transaction Cost (%)": tx_cost * 100
     }
+
     parameters_df = pd.DataFrame(list(parameters_used.items()), columns=["", ""])
 
     # Prepare a summary DataFrame of metrics.
@@ -160,7 +185,7 @@ def generate_back_test_report(prices,**params):
         "Win Rate": f"{win_rate:.2f}",
         "Total Return (%)": f"{total_return_pct:.2f}",
         "Max Drawdown": f"{max_drawdown:.2f}",
-        "Avg Abs % Reversion": f"{Average_Absolute_Percentage_Reversion:.2f}",
+        "Avg Abs % Reversion": f"{overall_avg_reversion:.2f}",
         "Pass Fraction": f"{pass_fraction:.2f}",
         "Avg p-value": f"{avg_pvalue:.2f}",
         "Correlation": f"{pair_corr:.5f}"
@@ -226,6 +251,8 @@ def generate_back_test_report(prices,**params):
         plt.subplot(2, 1, 2)
         plt.plot(cumulative_profit_series, label="Cumulative Profit", color='green')
         plt.title("Cumulative Profit Curve")
+        plt.xlabel("Time")
+        plt.ylabel("Profit (€)")
         plt.legend()
         pdf.savefig()
         plt.close()
@@ -249,23 +276,45 @@ def generate_back_test_report(prices,**params):
         pdf.savefig()
         plt.close()
 
-        # Page 5: Zscore Spread Time Series and Trading Positions.
-        plt.figure(figsize=(11, 8.5))
-        plt.plot(zscore_series, label='Z-Score', color='purple', marker='o')
-        plt.axhline(0, color='grey', linestyle='--', label='Mean')
-        plt.axhline(entry_threshold, color='green', linestyle='--', label='±1.0 Entry threshold')
-        plt.axhline(-entry_threshold, color='green', linestyle='--')
-        plt.axhline(stop_loss_threshold, color='red', linestyle='--', label='±stop_loss_threshold Stop-loss')
-        plt.axhline(-stop_loss_threshold, color='red', linestyle='--')
+        #Plot experiment results
 
-        plt.title("Z-Score Of Spread With Trade Entries")
-        plt.scatter(long_entries.index, zscore_series.loc[long_entries.index], marker='^', 
-                    color='green', s=100, label='Long Entry')
-        plt.scatter(short_entries.index, zscore_series.loc[short_entries.index], marker='v', 
-                    color='red', s=100, label='Short Entry')
-        plt.legend()
+        plt.figure(figsize=(11, 8.5))
+        #Create bar plot for the percentage returns
+        plt.bar([f"{key * 100:.2f}%" for key in percentage_returns_list_transaction_costs.keys()], list(percentage_returns_list_transaction_costs.values()), color = 'orange')
+        plt.xlabel('Transaction costs (%)')
+        plt.ylabel('Returns (%)')
+        plt.title(f'Percentage returns for {sym1} and {sym2} pair for different transaction costs')
         pdf.savefig()
         plt.close()
+
+        plt.figure(figsize=(11, 8.5))
+        #Create bar plot for the percentage returns
+        plt.bar([f"{key}" for key in percentage_returns_list_thresholds.keys()], list(percentage_returns_list_thresholds.values()), color = 'green')
+        plt.xlabel('Thresholds')
+        plt.ylabel('Returns (%)')
+        plt.title(f'Percentage returns for {sym1} and {sym2} pair for different thresholds')
+        pdf.savefig()
+        plt.close()
+
+
+
+        # # Page 5: Zscore Spread Time Series and Trading Positions.
+        # plt.figure(figsize=(11, 8.5))
+        # plt.plot(zscore_series, label='Z-Score', color='purple', marker='o')
+        # plt.axhline(0, color='grey', linestyle='--', label='Mean')
+        # plt.axhline(entry_threshold, color='green', linestyle='--', label='±1.0 Entry threshold')
+        # plt.axhline(-entry_threshold, color='green', linestyle='--')
+        # plt.axhline(stop_loss_threshold, color='red', linestyle='--', label='±stop_loss_threshold Stop-loss')
+        # plt.axhline(-stop_loss_threshold, color='red', linestyle='--')
+
+        # plt.title("Z-Score Of Spread With Trade Entries")
+        # plt.scatter(long_entries.index, zscore_series.loc[long_entries.index], marker='^', 
+        #             color='green', s=100, label='Long Entry')
+        # plt.scatter(short_entries.index, zscore_series.loc[short_entries.index], marker='v', 
+        #             color='red', s=100, label='Short Entry')
+        # plt.legend()
+        # pdf.savefig()
+        # plt.close()
 
     
     print(f"PDF report generated  ✅: {pdf_filename}")
@@ -274,21 +323,27 @@ def generate_back_test_report(prices,**params):
 
 if __name__ == '__main__':
 
-    #ETH/SETH
-    #prices = pd.read_csv("binance_data/Staked_ETH_Bybit/merged_closing_prices.csv", index_col=0, parse_dates=True)
+    #ETH/WBETH
+    #prices = pd.read_csv('binance_data/ETH_and_WBETH/2024/1m/merged_closing_prices.csv', index_col=0, parse_dates=True)
 
     #BTC/WBTC
-    prices = pd.read_csv("binance_data/Wrapped BTC/2024/30m/merged_closing_prices.csv", index_col=0, parse_dates=True)
+    prices = pd.read_csv("binance_data/Wrapped BTC/2024/1m/merged_closing_prices.csv", index_col=0, parse_dates=True)
+
+
+    #SOL and BNSOL
+    #prices = pd.read_csv('binance_data/SOL_and_BNSOL/2025/5m/merged_closing_prices.csv', index_col=0, parse_dates=True)
+
+
 
 
     params = {
     "initial_capital": 10_000.0,
     "tx_cost": 0.00025,
-    "window_size": 336,
-    "entry_threshold": 4.0,
-    "exit_threshold": 0.1,
-    "stop_loss_threshold": 25,
-    "timeframe_str": "Timeframe: 1 Year (30min Data)",
+    "window_size": 1440,
+    "entry_threshold": 2.0,
+    "exit_threshold": 0,
+    "stop_loss_threshold": 3.0,
+    "timeframe_str": "Timeframe: 1 Year (1min Data)",
     "year_str": "Year: 2024",
     "min_pass_fraction": 0.5,
     "significance": 0.05

@@ -3,3 +3,8 @@ __pycache__/
 
 # Ignore Python bytecode files
 *.py[cod]
+
+#Ignore these python files
+tardis.py
+
+

@@ -144,20 +144,8 @@ def merge_ohlc_closing_prices(directory):
             except Exception as e:
                 print(f"❌ Error processing {file}: {e}")
 
-    # Merge all dataframes on timestamp
+    # Merge all dataframes on timestamp using INNER JOIN (only keep matching timestamps)
     if closing_prices:
-        # merged_df = list(closing_prices.values())[0]  # Start with the first DataFrame
-        # for symbol, df in list(closing_prices.items())[1:]:
-        #     merged_df = pd.merge(merged_df, df, on="timestamp", how="outer")  # Merge on timestamp
-
-        # # Sort by timestamp
-        # merged_df.sort_values("timestamp", inplace=True)
-        # merged_df.reset_index(drop=True, inplace=True)
-
-        # # Check for NaNs and log missing values
-        # nan_counts = merged_df.isna().sum()
-        # total_nans = nan_counts.sum()
-
         # Find the latest starting timestamp among all datasets
         common_start_time = max(df['timestamp'].min() for df in closing_prices.values())
 
@@ -165,41 +153,14 @@ def merge_ohlc_closing_prices(directory):
         for symbol, df in closing_prices.items():
             closing_prices[symbol] = df[df['timestamp'] >= common_start_time]
 
-        # Merge all dataframes on timestamp
-        merged_df = list(closing_prices.values())[0]  # Start with the first DataFrame
+        # Start with the first DataFrame and merge only on matching timestamps (inner join)
+        merged_df = list(closing_prices.values())[0]
         for symbol, df in list(closing_prices.items())[1:]:
-            merged_df = pd.merge(merged_df, df, on="timestamp", how="outer")  # Merge on timestamp
+            merged_df = pd.merge(merged_df, df, on="timestamp", how="inner")  # INNER JOIN
 
         # Sort by timestamp
         merged_df.sort_values("timestamp", inplace=True)
         merged_df.reset_index(drop=True, inplace=True)
-
-        # Check for NaNs and log missing values
-        nan_counts = merged_df.isna().sum()
-        total_nans = nan_counts.sum()
-
-
-        if total_nans > 0:
-            print(f"⚠️ Detected {total_nans} missing values across the dataset.")
-
-            # Print NaN counts per column
-            for column, count in nan_counts.items():
-                if count > 0:
-                    print(f"   - {column}: {count} missing values")
-
-            # Fill missing values using forward fill (then backward fill for remaining NaNs)
-            merged_df.fillna(method='ffill', inplace=True)
-            merged_df.fillna(method='bfill', inplace=True)
-
-            # Check if any NaNs remain after filling
-            remaining_nans = merged_df.isna().sum().sum()
-            if remaining_nans == 0:
-                print("✅ All missing values have been successfully filled.")
-            else:
-                print(f"⚠️ {remaining_nans} missing values remain after filling.")
-
-        else:
-            print("✅ No missing values detected.")
 
         # Save the merged DataFrame as a CSV in the same directory
         output_file = os.path.join(directory, "merged_closing_prices.csv")
