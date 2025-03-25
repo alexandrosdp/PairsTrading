@@ -279,20 +279,43 @@ def generate_back_test_report(prices,**params):
         #Plot experiment results
 
         plt.figure(figsize=(11, 8.5))
-        #Create bar plot for the percentage returns
-        plt.bar([f"{key * 100:.2f}%" for key in percentage_returns_list_transaction_costs.keys()], list(percentage_returns_list_transaction_costs.values()), color = 'orange')
+
+        # Prepare data
+        x_labels = [f"{key * 100}%" for key in percentage_returns_list_transaction_costs.keys()]
+        heights = list(percentage_returns_list_transaction_costs.values())
+
+        # Create bar plot
+        bars = plt.bar(x_labels, heights, color='orange')
         plt.xlabel('Transaction costs (%)')
         plt.ylabel('Returns (%)')
         plt.title(f'Percentage returns for {sym1} and {sym2} pair for different transaction costs')
+
+        # Add labels on top of each bar
+        for bar in bars:
+            height = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width() / 2, height,
+                    f'{height:.2f}%', ha='center', va='bottom', fontsize=9)
+
         pdf.savefig()
         plt.close()
 
         plt.figure(figsize=(11, 8.5))
-        #Create bar plot for the percentage returns
-        plt.bar([f"{key}" for key in percentage_returns_list_thresholds.keys()], list(percentage_returns_list_thresholds.values()), color = 'green')
+        # Prepare data
+        x_labels = [f"{key}" for key in percentage_returns_list_thresholds.keys()]
+        heights = list(percentage_returns_list_thresholds.values())
+
+        # Create bar plot
+        bars = plt.bar(x_labels, heights, color='green')
         plt.xlabel('Thresholds')
         plt.ylabel('Returns (%)')
         plt.title(f'Percentage returns for {sym1} and {sym2} pair for different thresholds')
+
+        # Add labels on top of each bar
+        for bar in bars:
+            height = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width() / 2, height,
+                    f'{height:.2f}%', ha='center', va='bottom', fontsize=9)
+
         pdf.savefig()
         plt.close()
 
@@ -323,11 +346,25 @@ def generate_back_test_report(prices,**params):
 
 if __name__ == '__main__':
 
+                                                    #CLOSING PRICES
+    #---------------------------------------------------------------------------------------------------------------------
     #ETH/WBETH
     #prices = pd.read_csv('binance_data/ETH_and_WBETH/2024/1m/merged_closing_prices.csv', index_col=0, parse_dates=True)
 
     #BTC/WBTC
-    prices = pd.read_csv("binance_data/Wrapped BTC/2024/1m/merged_closing_prices.csv", index_col=0, parse_dates=True)
+    #prices = pd.read_csv("binance_data/Wrapped BTC/2024/1m/merged_closing_prices.csv", index_col=0, parse_dates=True)
+    
+                                                    #ORDER BOOK
+    #---------------------------------------------------------------------------------------------------------------------
+
+    #BTC/WBTC (ORDER BOOK)
+    # prices = pd.read_csv('order_book_data/merged_data/1min/btc_wbtc_combined_1m.csv', index_col=0, parse_dates=True)
+    # prices = prices[['btc_mid_price', 'wbtc_mid_price']] #ONLY TAKE MID PRICES
+
+    #ETH/WETH (ORDER BOOK)
+    prices = pd.read_csv('order_book_data/merged_data/1min/eth_wbeth_combined_1m.csv', index_col=0, parse_dates=True)
+    prices = prices[['eth_mid_price','wbeth_mid_price']]
+
 
 
     #SOL and BNSOL
@@ -340,10 +377,10 @@ if __name__ == '__main__':
     "initial_capital": 10_000.0,
     "tx_cost": 0.00025,
     "window_size": 1440,
-    "entry_threshold": 2.0,
+    "entry_threshold": 2,
     "exit_threshold": 0,
-    "stop_loss_threshold": 3.0,
-    "timeframe_str": "Timeframe: 1 Year (1min Data)",
+    "stop_loss_threshold": 3,
+    "timeframe_str": "Timeframe: June - December (1min Data)",
     "year_str": "Year: 2024",
     "min_pass_fraction": 0.5,
     "significance": 0.05
