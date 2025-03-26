@@ -3,6 +3,8 @@ from data_pre_processing import *
 from pair_finder import *
 from back_tester import *
 import itertools
+from tqdm import tqdm
+
 
 
 
@@ -16,7 +18,7 @@ def threshold_experiment(prices,entry_stop_map,initial_capital):
     window_size = 1440
     exit_threshold= 0
 
-    tx_cost = 0.00025
+    tx_cost = 0.00025 #Default transaction cost value
 
     #Params:
     #Back test
@@ -58,9 +60,9 @@ def transaction_cost_experiment(prices,tx_costs_map,initial_capital):
     #Params:
     #--------------------------------
     window_size = 1440
-    entry_threshold= 2
+    entry_threshold= 2 #Default entry threshold value
     exit_threshold= 0
-    stop_loss_threshold= 3
+    stop_loss_threshold= 3 #Default stop loss threshold value
 
     #Params:
     #Back test

@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import os
 from matplotlib.backends.backend_pdf import PdfPages
+from tqdm import tqdm
+
 
 
 def calculate_avg_abs_pct_reversion(trade_entries, trade_exits):
@@ -281,7 +283,7 @@ def generate_back_test_report(prices,**params):
         plt.figure(figsize=(11, 8.5))
 
         # Prepare data
-        x_labels = [f"{key * 100}%" for key in percentage_returns_list_transaction_costs.keys()]
+        x_labels = [f"{key * 100:.3f}" for key in percentage_returns_list_transaction_costs.keys()]
         heights = list(percentage_returns_list_transaction_costs.values())
 
         # Create bar plot
@@ -289,7 +291,7 @@ def generate_back_test_report(prices,**params):
         plt.xlabel('Transaction costs (%)')
         plt.ylabel('Returns (%)')
         plt.title(f'Percentage returns for {sym1} and {sym2} pair for different transaction costs')
-
+        
         # Add labels on top of each bar
         for bar in bars:
             height = bar.get_height()
@@ -303,7 +305,7 @@ def generate_back_test_report(prices,**params):
         # Prepare data
         x_labels = [f"{key}" for key in percentage_returns_list_thresholds.keys()]
         heights = list(percentage_returns_list_thresholds.values())
-
+        
         # Create bar plot
         bars = plt.bar(x_labels, heights, color='green')
         plt.xlabel('Thresholds')
@@ -358,12 +360,12 @@ if __name__ == '__main__':
     #---------------------------------------------------------------------------------------------------------------------
 
     #BTC/WBTC (ORDER BOOK)
-    # prices = pd.read_csv('order_book_data/merged_data/1min/btc_wbtc_combined_1m.csv', index_col=0, parse_dates=True)
-    # prices = prices[['btc_mid_price', 'wbtc_mid_price']] #ONLY TAKE MID PRICES
+    prices = pd.read_csv('order_book_data/merged_data/1min/btc_wbtc_combined_1m.csv', index_col=0, parse_dates=True)
+    prices = prices[['btc_mid_price', 'wbtc_mid_price']] #ONLY TAKE MID PRICES
 
-    #ETH/WETH (ORDER BOOK)
-    prices = pd.read_csv('order_book_data/merged_data/1min/eth_wbeth_combined_1m.csv', index_col=0, parse_dates=True)
-    prices = prices[['eth_mid_price','wbeth_mid_price']]
+    # #ETH/WETH (ORDER BOOK)
+    # prices = pd.read_csv('order_book_data/merged_data/1min/eth_wbeth_combined_1m.csv', index_col=0, parse_dates=True)
+    # prices = prices[['eth_mid_price','wbeth_mid_price']]
 
 
 

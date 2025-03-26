@@ -947,7 +947,7 @@ def simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, bet
     for entry, exit in zip(trade_entries, trade_exits):
         entry_time = pd.to_datetime(entry['time'])
         exit_time = pd.to_datetime(exit['time'])
-        
+
         # Determine beta at the entry time using the provided beta_series.
         beta_entry = beta_series.loc[entry_time] if entry_time in beta_series.index else print("Error: Beta not found at entry time.")
 
@@ -991,6 +991,12 @@ def simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, bet
         entry_times.append(entry_time)
         exit_times.append(exit_time)
 
+        #For compounding
+        #----------------------------------------------------------------------------------------------------------------
+        # print("Trade profit: -->", net_trade_profit)
+        # initial_capital = initial_capital + net_trade_profit #Update the initial capital with the net trade profit for this trade
+        # print("New initial capital: -->", initial_capital)
+
         # Count losses.
         if net_trade_profit < 0:
             if entry['position'] == 1:
@@ -1002,6 +1008,8 @@ def simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, bet
     cumulative_profit = np.cumsum(trade_profits)
     cumulative_profit_series = pd.Series(cumulative_profit, index=exit_times)
     
+    #initial_capital = 10_000.0 #Reset initial capital
+
     # Print diagnostics.
     print(f"Total trades: {len(trade_profits)}")
     print(f"Number of profitable trades (proft > 0): {sum(1 for profit in trade_profits if profit > 0)}")
@@ -1011,6 +1019,8 @@ def simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, bet
     print(f"Long spread losses: {long_spread_loss_count}, Short spread losses: {short_spread_loss_count}")
     print(f"Number of Dual-leg profitable trades: {number_of_dual_leg_profits}")
     print(f"Dual leg trade profit rate: {number_of_dual_leg_profits / len(trade_profits) * 100:.2f}%")
+
+
 
     return trade_profits, cumulative_profit_series, entry_times, exit_times
 
