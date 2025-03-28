@@ -1275,6 +1275,7 @@ def plot_trading_simulation(
     sym2, 
     zscore, 
     positions, 
+    trade_profits,
     entry_threshold,
     stop_loss_threshold,
     trade_entries=None,  # list of dicts: { 'time', 'S1', 'S2', 'z', 'position' }
