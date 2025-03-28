@@ -11,7 +11,6 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import os
 from matplotlib.backends.backend_pdf import PdfPages
-from tqdm import tqdm
 
 
 
@@ -360,8 +359,8 @@ if __name__ == '__main__':
     #---------------------------------------------------------------------------------------------------------------------
 
     #BTC/WBTC (ORDER BOOK)
-    prices = pd.read_csv('order_book_data/merged_data/1min/btc_wbtc_combined_1m.csv', index_col=0, parse_dates=True)
-    prices = prices[['btc_mid_price', 'wbtc_mid_price']] #ONLY TAKE MID PRICES
+    #prices = pd.read_csv('order_book_data/merged_data/1min/btc_wbtc_combined_1m.csv', index_col=0, parse_dates=True)
+    #prices = prices[['btc_mid_price', 'wbtc_mid_price']] #ONLY TAKE MID PRICES
 
     # #ETH/WETH (ORDER BOOK)
     # prices = pd.read_csv('order_book_data/merged_data/1min/eth_wbeth_combined_1m.csv', index_col=0, parse_dates=True)
@@ -372,8 +371,8 @@ if __name__ == '__main__':
     #SOL and BNSOL
     #prices = pd.read_csv('binance_data/SOL_and_BNSOL/2025/5m/merged_closing_prices.csv', index_col=0, parse_dates=True)
 
-
-
+    prices = pd.read_csv('binance_data/top_100_tickers/2024/1m/merged_closing_prices.csv', index_col=0, parse_dates=True)
+    prices = prices[['XRP/USDT_2024_1m', 'ADA/USDT_2024_1m']]
 
     params = {
     "initial_capital": 10_000.0,
@@ -382,7 +381,7 @@ if __name__ == '__main__':
     "entry_threshold": 2,
     "exit_threshold": 0,
     "stop_loss_threshold": 3,
-    "timeframe_str": "Timeframe: June - December (1min Data)",
+    "timeframe_str": "Timeframe: January - June (1min Data)",
     "year_str": "Year: 2024",
     "min_pass_fraction": 0.5,
     "significance": 0.05

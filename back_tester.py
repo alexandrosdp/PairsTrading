@@ -1229,8 +1229,8 @@ def simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, bet
         entry_times.append(entry_time)
         exit_times.append(exit_time)
 
-        #For compounding
-        #----------------------------------------------------------------------------------------------------------------
+        # #For compounding
+        # #----------------------------------------------------------------------------------------------------------------
         # print("Trade profit: -->", net_trade_profit)
         # initial_capital = initial_capital + net_trade_profit #Update the initial capital with the net trade profit for this trade
         # print("New initial capital: -->", initial_capital)
