@@ -1450,8 +1450,14 @@ def plot_trading_simulation(
     plt.axhline(0, color='grey', linestyle='--', label='Mean')
     plt.axhline(entry_threshold, color='green', linestyle='--', label='Entry Threshold')
     plt.axhline(-entry_threshold, color='green', linestyle='--')
-    plt.axhline(stop_loss_threshold, color='red', linestyle='--', label='Stop-Loss Threshold')
-    plt.axhline(-stop_loss_threshold, color='red', linestyle='--')
+
+
+    if(stop_loss_threshold < 10):
+        plt.axhline(stop_loss_threshold, color='red', linestyle='--', label='Stop-Loss Threshold')
+        plt.axhline(-stop_loss_threshold, color='red', linestyle='--')
+    else:
+        print("Stop loss threshold is too high to be plotted")
+
     plt.title("Rolling Z-Score of Spread")
     # Plot interpolated entry markers for z-score.
     if trade_entries is not None:
