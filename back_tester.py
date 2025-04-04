@@ -60,8 +60,14 @@ def compute_spread_series(S1, S2, window_size=None):
         beta_series.iloc[t] = beta_t
         alpha_series.iloc[t] = alpha_t
 
+        #Including intercept
         # Compute the spread at time t using the dynamically estimated beta
         spread_series.iloc[t] = S1.iloc[t] - alpha_t - beta_t * S2.iloc[t]
+
+        #Excluding intercept
+        #spread_series.iloc[t] = S1.iloc[t] - beta_t * S2.iloc[t]
+
+
 
     return spread_series, beta_series, alpha_series
 
@@ -1180,6 +1186,8 @@ def simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, bet
     short_spread_loss_count = 0
     number_of_dual_leg_profits = 0
 
+    trade_count = 0
+
     # Loop over the paired trades.
     # It is assumed that trade_entries and trade_exits are already properly paired in order.
     for entry, exit in zip(trade_entries, trade_exits):
@@ -1189,9 +1197,12 @@ def simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, bet
         # Determine beta at the entry time using the provided beta_series.
         beta_entry = beta_series.loc[entry_time] if entry_time in beta_series.index else print("Error: Beta not found at entry time.")
 
+        #Take absolute value of beta_entry to avoid negative notional allocation or a blow up of the notional value as B approaches -1
+        beta_abs = abs(beta_entry)
+
         # Notional allocation.
-        Notional_S1 = initial_capital / (1.0 + beta_entry)
-        Notional_S2 = beta_entry * Notional_S1
+        Notional_S1 = initial_capital / (1.0 + beta_abs)
+        Notional_S2 = beta_abs * Notional_S1
 
         # Compute share counts based on the interpolated entry prices.
         shares_S1 = Notional_S1 / entry['S1']
@@ -1199,16 +1210,33 @@ def simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, bet
 
         # Calculate gross profit depending on trade direction.
         if entry['position'] == 1:  # Long spread: long S1, short S2.
-            gross_profit_S1 = shares_S1 * (exit['S1'] - entry['S1'])
-            gross_profit_S2 = shares_S2 * (entry['S2'] - exit['S2'])
-            gross_profit = gross_profit_S1 + gross_profit_S2
+
+            if beta_entry > 0:
+                gross_profit_S1 = shares_S1 * (exit['S1'] - entry['S1'])
+                gross_profit_S2 = shares_S2 * (entry['S2'] - exit['S2'])
+                gross_profit = gross_profit_S1 + gross_profit_S2
+            else:
+                #For negative beta a long spread means long S1 and long S2
+                gross_profit_S1 = shares_S1 * (exit['S1'] - entry['S1'])
+                gross_profit_S2 = shares_S2 * (exit['S2'] - entry['S2'])
+                gross_profit = gross_profit_S1 + gross_profit_S2
+
             # For diagnostic purposes, you can check dual leg performance.
             if (gross_profit_S1 > 0 and gross_profit_S2 > 0):
                 number_of_dual_leg_profits += 1
+
         elif entry['position'] == -1:  # Short spread: short S1, long S2.
-            gross_profit_S1 = shares_S1 * (entry['S1'] - exit['S1'])
-            gross_profit_S2 = shares_S2 * (exit['S2'] - entry['S2'])
-            gross_profit = gross_profit_S1 + gross_profit_S2
+
+            if beta_entry > 0:
+                gross_profit_S1 = shares_S1 * (entry['S1'] - exit['S1'])
+                gross_profit_S2 = shares_S2 * (exit['S2'] - entry['S2'])
+                gross_profit = gross_profit_S1 + gross_profit_S2
+            else:
+                #For negative beta a short spread means short S1 and short S2
+                gross_profit_S1 = shares_S1 * (entry['S1'] - exit['S1'])
+                gross_profit_S2 = shares_S2 * (entry['S2'] - exit['S2'])
+                gross_profit = gross_profit_S1 + gross_profit_S2
+
             if (gross_profit_S1 > 0 and gross_profit_S2 > 0):
                 number_of_dual_leg_profits += 1
         else:
@@ -1225,6 +1253,14 @@ def simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, bet
             total_fees = 0.0
 
         net_trade_profit = gross_profit - total_fees
+
+        print(f"Trade Num: {trade_count}")
+        print("-----------------------------------------------")
+        print(f"Trade type: {entry['position']}, Entry time: {entry_time}, Exit time: {exit_time}") #If entry['position'] == 1, long spread; if -1, short spread.
+        print(f"Net Trade profit (includes fees): {net_trade_profit}")
+        print(f"Beta at entry (Not the absolute value): {beta_entry}")
+        print(f"Notional S1: {Notional_S1}, Notional S2: {Notional_S2}, Shares S1 : {shares_S1}, Shares S2: {shares_S2}")
+        print(f"Percentage change S1: {((exit['S1'] - entry['S1']) / entry['S1']) * 100:.2f}%, Percentage change S2: {((exit['S2'] - entry['S2']) /entry['S2']) * 100:.2f}%")
         trade_profits.append(net_trade_profit)
         entry_times.append(entry_time)
         exit_times.append(exit_time)
@@ -1241,6 +1277,10 @@ def simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, bet
                 long_spread_loss_count += 1
             elif entry['position'] == -1:
                 short_spread_loss_count += 1
+
+        # Count the number of trades.        
+        trade_count += 1
+        
 
     # Compute cumulative profit series.
     cumulative_profit = np.cumsum(trade_profits)
