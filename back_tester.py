@@ -1178,6 +1178,8 @@ def simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, bet
     #     beta_series = pd.Series(beta_series, index=S1.index)
     
     trade_profits = []
+    net_trade_profits_S1 = []
+    net_trade_profits_S2 = []
     entry_times = []
     exit_times = []
     
@@ -1252,6 +1254,14 @@ def simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, bet
         else:
             total_fees = 0.0
 
+        #Calculate net trade profit for individual legs
+
+
+        net_trade_profit_S1 = gross_profit_S1 - (fee_S1_entry + fee_S1_exit)
+        net_trade_profit_S2 = gross_profit_S2 - (fee_S2_entry + fee_S2_exit)
+        net_trade_profits_S1.append(net_trade_profit_S1)
+        net_trade_profits_S2.append(net_trade_profit_S2)
+
         net_trade_profit = gross_profit - total_fees
 
         print(f"Trade Num: {trade_count}")
@@ -1300,7 +1310,7 @@ def simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, bet
 
 
 
-    return trade_profits, cumulative_profit_series, entry_times, exit_times
+    return trade_profits, net_trade_profits_S1, net_trade_profits_S2,cumulative_profit_series, entry_times, exit_times
 
 
 # Example usage:
