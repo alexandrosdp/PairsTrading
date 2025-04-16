@@ -61,6 +61,9 @@ def calculate_C_g(correlation_matrix, T, N):
     lambda_plus = (1 + np.sqrt(N / T))**2
     lambda_min = (1 - np.sqrt(N / T))**2  # Not used in this code but calculated as per RMT
     
+    print("Lambda plus:", lambda_plus)
+    print(f"Eigenvalues: {eigenvalues}")    
+
     # Obtain eigenvalues and eigenvectors above lambda_plus
     denoised_eigenvalues = []
     denoised_eigenvectors = []
@@ -70,6 +73,8 @@ def calculate_C_g(correlation_matrix, T, N):
         if eigenvalue > lambda_plus:
             denoised_eigenvalues.append(eigenvalue)
             denoised_eigenvectors.append(eigenvectors[:, index])  # Corresponding eigenvector
+
+    print("denoised_eigenvalues", denoised_eigenvalues)
     
     # Remove the largest eigenvalue (global mode) from denoised values
     if denoised_eigenvalues:
