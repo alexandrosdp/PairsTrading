@@ -380,6 +380,97 @@ def map_communities_to_company_names(communities, company_names):
     
     return company_communities 
 
+
+def spectral_method(C_g):
+    # Perform eigendecomposition
+    eigenvalues, eigenvectors = np.linalg.eig(C_g)
+    max_eigenvalue_index = np.argmax(eigenvalues)
+    leading_eigenvector = eigenvectors[:, max_eigenvalue_index]
+    
+    community_1 = []
+    community_2 = []
+    
+    # Creating the communities based on the sign of the eigenvector
+    for i in range(len(leading_eigenvector)):
+        if leading_eigenvector[i] > 0:
+            community_1.append(i)  
+        else:
+            community_2.append(i) 
+    
+    return [community_1, community_2]
+
+
+def calculate_modularity(C_g, partitions, corr_matrix):
+    # C_norm is the total sum of C_g (Eq.38)
+    c_norm = np.sum(np.triu(corr_matrix))
+
+    modularity = 0.0
+    
+    # Calculate modularity based on the partition
+    #Since the nodes have been assigned to communities, and we are summing over these communitiies seperately, there is no need for the (sisj +1)/2 term, shown in the paper
+    for community in partitions:
+        for i in community:
+            for j in community:
+                if i <= j:
+                    modularity += C_g[i, j]
+    
+    # Normalize modularity by C_norm
+    modularity /= c_norm
+    return modularity
+
+
+
+def recursive_spectral_method(C_g, corr_matrix, company_names, min_size=2, modularity_threshold=0.00001):
+    result_communities = []
+    modularities = []
+
+    # Recursive function to split communities
+    def split_community(community_nodes):
+
+        # If community is too small, add it directly to result_communities
+        if len(community_nodes) <= min_size:
+            result_communities.append(community_nodes)
+            return
+
+        # Extract the submatrix for the current community
+        submatrix = C_g[np.ix_(community_nodes, community_nodes)]
+
+        # Apply spectral method to split into two communities
+        communities = spectral_method(submatrix)
+
+        # Map the sub-community indices back to the original indices
+        community_1 = [community_nodes[i] for i in communities[0]]
+        community_2 = [community_nodes[i] for i in communities[1]]
+        # Calculate modularity before and after the split
+        initial_modularity = calculate_modularity(C_g, [community_nodes], corr_matrix)
+        new_modularity = calculate_modularity(C_g, [community_1, community_2], corr_matrix)
+        # Check if the split improves modularity significantly
+        if (new_modularity - initial_modularity) > modularity_threshold:
+            # Recursively split each resulting community
+            split_community(community_1)
+            split_community(community_2)
+            modularities.append(new_modularity)
+        else:
+            # If modularity gain is too low, add the original community without splitting
+            result_communities.append(community_nodes)
+    
+    # Start recursive splitting from the entire set of nodes
+    all_nodes = list(range(len(C_g)))
+
+
+    split_community(all_nodes)
+
+    company_communities = []
+
+    for partition in result_communities:
+        company_list = []
+        for i in partition:
+            company_list.append(company_names[i])
+        company_communities.append(company_list)
+
+ 
+    return result_communities, company_communities, modularities
+
 if __name__ == "__main__":
 
     correlation_matrix,T,N,company_names = create_correlation_matrix('binance_data/top_100_tickers/2024/1m/log_returns_standardized.csv') 

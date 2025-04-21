@@ -144,6 +144,7 @@ def merge_ohlc_closing_prices(directory):
             except Exception as e:
                 print(f"❌ Error processing {file}: {e}")
 
+
     # Merge all dataframes on timestamp using INNER JOIN (only keep matching timestamps)
     if closing_prices:
         # Find the latest starting timestamp among all datasets
