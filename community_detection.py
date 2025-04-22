@@ -90,7 +90,7 @@ def calculate_C_g(correlation_matrix, T, N):
         C_g += eigenvalue * (eigenvector @ eigenvector.T)  # Outer product
     
     # Return the filtered correlation matrix
-    return C_g
+    return C_g, eigenvalues, eigenvectors
 
 
 def calculate_modularity_with_potential_move(node,current_index,neighbour_community_index,communities, modularity_matrix, original_corr_matrix):
