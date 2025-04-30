@@ -551,6 +551,195 @@ def backtest_pair_rolling_order_book(
 
     return positions, trade_entries, trade_exits
 
+def compute_max_drawdown(initial_capital,cumulative_profit_series):
+
+    """
+    Calculate the maximum drawdown of a portfolio.
+    The maximum drawdown is defined as the maximum observed loss from a peak to a trough
+    in the portfolio value.
+    Parameters:
+    initial_capital (float): The initial capital of the portfolio.
+    cumulative_profit_series (pd.Series): A series of cumulative profits over time.
+    Returns:
+    max_drawdown (float): The maximum drawdown value.
+    max_drawdown_percentage (float): The maximum drawdown percentage.
+    """
+ 
+    # Calculate the portfolio value over time
+    portfolio_values = initial_capital + cumulative_profit_series
+
+    # Calculate the drawdown
+    rolling_max = portfolio_values.cummax()
+    drawdown = (portfolio_values - rolling_max) / rolling_max
+    drawdown = drawdown.dropna()
+    # Calculate the maximum drawdown
+    max_drawdown = drawdown.min() #We use min bevause drawdown is negative!
+    # Calculate the maximum drawdown percentage
+    max_drawdown_percentage = max_drawdown * 100
+
+    max_drawdown_percentage = abs(max_drawdown_percentage) #Convert to positive value
+
+    return max_drawdown_percentage
+
+
+def compute_mean_absolute_percent_delta_betas(beta_series, entry_times, exit_times):
+
+    """
+    Calculate the mean absolute percent delta betas for each trade.
+    This function computes the absolute percent difference between the beta at the trade entry
+    and the betas in the trade range (between entry and exit times).
+
+    Parameters:
+    beta_series (pd.Series): A series of betas (hedge ratios)
+    entry_times (list): A list of entry times for trades
+    exit_times (list): A list of exit times for trades
+
+    Returns:
+    mean_absolute_percent_delta_betas (list): A list of mean absolute percent delta betas for each trade
+    """
+
+
+    #Get actual Betas used for each trade entry
+    beta_entries = [beta_series[entry] for entry in entry_times]
+
+    trade_ranges = [(entry, exit) for entry, exit in zip(entry_times, exit_times)]
+
+    #Get beta series in the trade ranges
+
+    beta_series_trade_ranges = [beta_series[entry:exit].iloc[1:] for entry, exit in trade_ranges] #iloc[1:] to exclude the first beta value which is the same as the entry beta
+
+    #Calculate the percent absolute difference between the beta at the trade entry and the betas in the trade range
+    absolute_percent_delta_betas = [np.abs(((entry_beta - beta_range)/entry_beta)*100) for entry_beta, beta_range in zip(beta_entries, beta_series_trade_ranges)]
+
+    #Calculate the mean delta beta for each trade
+    mean_absolute_percent_delta_betas = [np.mean(delta) for delta in absolute_percent_delta_betas]
+
+
+    return mean_absolute_percent_delta_betas
+
+
+
+
+def compute_key_metrics(sym1, sym2, S1,S2,initial_capital,trade_profits,cumulative_profit_series, entry_times, exit_times, beta_series):
+    
+    #Trade losses and wins
+    trade_losses = [profit for profit in trade_profits if profit < 0]
+    trade_wins = [profit for profit in trade_profits if profit > 0]
+    
+    #Compute non-stop loss win rate (assuming there is no stop loss)
+    non_stop_loss_win_rate = (len(trade_wins) / (len(trade_wins) + len(trade_losses))) * 100
+
+    #Compute trade durations
+    trade_durations = [(exit - entry).total_seconds() / 60 for entry, exit in zip(entry_times, exit_times)]
+
+    # Percentage changes in S1 and S2 each trade
+    trade_percentage_changes = []
+    for entry_time, exit_time in zip(entry_times, exit_times):
+        # Calculate percentage change for S1 and S2
+        price_change_S1 = (S1[exit_time] - S1[entry_time]) / S1[entry_time] * 100
+        price_change_S2 = (S2[exit_time] - S2[entry_time]) / S2[entry_time] * 100
+        trade_percentage_changes.append((price_change_S1, price_change_S2))
+
+    S1_trade_returns = [percentage_changes[0] for percentage_changes in trade_percentage_changes]
+    S2_trade_returns = [percentage_changes[1] for percentage_changes in trade_percentage_changes]
+
+    #Compute mean absolute percent delta betas
+    mean_absolute_percent_delta_betas = compute_mean_absolute_percent_delta_betas(beta_series, entry_times, exit_times)
+
+    #Compute average absolute percent delta betas
+    average_absolute_percent_delta_beta = np.mean(mean_absolute_percent_delta_betas)
+
+    #Compute average trade duration
+    mean_trade_duration = np.mean(trade_durations)
+
+    #Compute average S1 and S2 trade returns
+    average_S1_trade_returns = np.mean(S1_trade_returns)
+    average_S2_trade_returns = np.mean(S2_trade_returns)
+    
+    #Compute entry betas
+    entry_betas = beta_series[entry_times]
+
+    #Compute average entry beta
+    avg_entry_beta = np.mean(entry_betas)
+
+    #Compute beta series returns
+    beta_series_returns = beta_series.pct_change().dropna()
+
+    #Compute standard of beta series returns
+    std_beta_series = beta_series_returns.std() * 100
+    print(f"Std of beta series returns: {std_beta_series:.4f}")
+
+    max_drawdown = compute_max_drawdown(initial_capital,cumulative_profit_series)
+
+    key_metrics_df = pd.DataFrame({
+    'Pair': f"{sym1} ~ {sym2}",
+    'Total return (%)': cumulative_profit_series[-1]/initial_capital * 100,
+    'Max drawdown (%)': max_drawdown,
+    'Number of trades': len(trade_profits),
+    'Non-stop loss win rate (%)': non_stop_loss_win_rate,
+    f'Mean trade duration/Reversion speed from threshold (mins)': mean_trade_duration,
+    'Average entry beta': avg_entry_beta,
+    'Mean Absolute Percent Delta Beta (%)': average_absolute_percent_delta_beta,
+    'Beta series returns std (%)': std_beta_series,
+    #'Spread series z-score std (%)': z_score_spread_std,
+    'Average S1 trade returns (%)': average_S1_trade_returns,
+    'Average S2 trade returns (%)': average_S2_trade_returns,
+    },index=[0])
+
+    return key_metrics_df
+
+
+#Final backtest function
+
+def backtest(prices_df, **params):
+
+    #Params:
+    #----------------------------------------------
+    initial_capital = params.get("initial_capital")
+    window_size = params.get("window_size")
+    entry_threshold = params.get("entry_threshold")
+    exit_threshold = params.get("exit_threshold")
+    stop_loss_threshold = params.get("stop_loss_threshold")
+    tx_cost= params.get("tx_cost")
+
+    #Backtest functions:
+    #----------------------------------------------
+    sym1, sym2 = prices_df.columns
+
+    S1 = prices_df[sym1]
+    S2 = prices_df[sym2]
+
+    print("-------------------------------------------------------")
+    print("INITIATING BACKTEST FOR PAIR: ", sym1, "~", sym2, "🚀")
+    print("-------------------------------------------------------")
+
+    # Compute the spread series and beta_series 
+    spread_series, beta_series, alpha_series = compute_spread_series(S1, S2, window_size)
+    #print(f"Hedge ratio (beta) for {sym1} ~ {sym2}: {beta:.4f}")
+
+    # Compute rolling z-score using the provided helper function.
+    zscore_series, rolling_mean, rolling_std = compute_rolling_zscore(spread_series, window_size)
+
+    # Gather trade entries and exits
+    positions, trade_entries, trade_exits = backtest_pair_rolling(spread_series,S1,S2,zscore_series, entry_threshold, exit_threshold, stop_loss_threshold)
+
+    #Compute trade profits
+    trade_profits, net_trade_profits_S1, net_trade_profits_S2,cumulative_profit_series, entry_times, exit_times = simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, beta_series, tx_cost)
+
+    #Compute key metrics
+    #----------------------------------------------
+    key_metrics_df = compute_key_metrics(sym1, sym2,S1,S2,initial_capital,trade_profits,cumulative_profit_series, entry_times, exit_times, beta_series)
+
+    print("-------------------------------------------------------")
+    print("BACKTEST COMPLETED FOR: ", sym1, "~", sym2, "✅")
+    print("-------------------------------------------------------")
+
+
+    return key_metrics_df
+
+
+
+
 
 #OLD BACK TEST FUNCTION WITH INTERPOLATION
 #-------------------------------------------------------------
@@ -1264,13 +1453,13 @@ def simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, bet
 
         net_trade_profit = gross_profit - total_fees
 
-        print(f"Trade Num: {trade_count}")
-        print("-----------------------------------------------")
-        print(f"Trade type: {entry['position']}, Entry time: {entry_time}, Exit time: {exit_time}") #If entry['position'] == 1, long spread; if -1, short spread.
-        print(f"Net Trade profit (includes fees): {net_trade_profit}")
-        print(f"Beta at entry (Not the absolute value): {beta_entry}")
-        print(f"Notional S1: {Notional_S1}, Notional S2: {Notional_S2}, Shares S1 : {shares_S1}, Shares S2: {shares_S2}")
-        print(f"Percentage change S1: {((exit['S1'] - entry['S1']) / entry['S1']) * 100:.2f}%, Percentage change S2: {((exit['S2'] - entry['S2']) /entry['S2']) * 100:.2f}%")
+        # print(f"Trade Num: {trade_count}")
+        # print("-----------------------------------------------")
+        # print(f"Trade type: {entry['position']}, Entry time: {entry_time}, Exit time: {exit_time}") #If entry['position'] == 1, long spread; if -1, short spread.
+        # print(f"Net Trade profit (includes fees): {net_trade_profit}")
+        # print(f"Beta at entry (Not the absolute value): {beta_entry}")
+        # print(f"Notional S1: {Notional_S1}, Notional S2: {Notional_S2}, Shares S1 : {shares_S1}, Shares S2: {shares_S2}")
+        # print(f"Percentage change S1: {((exit['S1'] - entry['S1']) / entry['S1']) * 100:.2f}%, Percentage change S2: {((exit['S2'] - entry['S2']) /entry['S2']) * 100:.2f}%")
         trade_profits.append(net_trade_profit)
         entry_times.append(entry_time)
         exit_times.append(exit_time)
