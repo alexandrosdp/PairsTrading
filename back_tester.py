@@ -551,6 +551,33 @@ def backtest_pair_rolling_order_book(
 
     return positions, trade_entries, trade_exits
 
+
+def compute_sharpe_ratio(initial_capital,trade_profits, risk_free_rate=0.0):
+
+    """
+    Calculate the Sharpe ratio of a trading strategy.
+    The Sharpe ratio is a measure of risk-adjusted return.
+    It is calculated as the mean return of the strategy minus the risk-free rate,
+    divided by the standard deviation of the returns.
+    Parameters:
+    initial_capital (float): The initial capital of the portfolio.
+    trade_profits (list): A list of trade profits.
+    risk_free_rate (float): The risk-free rate of return.
+    Returns:
+    sharpe_ratio (float): The Sharpe ratio of the strategy.
+    """
+
+    trade_profits = np.array(trade_profits)
+
+    trade_returns = trade_profits/ initial_capital
+
+    mean_return = np.mean(trade_returns)
+    std_return = np.std(trade_returns)
+    sharpe_ratio = (mean_return - risk_free_rate) / std_return
+
+    return sharpe_ratio
+
+
 def compute_max_drawdown(initial_capital,cumulative_profit_series):
 
     """
@@ -669,11 +696,14 @@ def compute_key_metrics(sym1, sym2, S1,S2,initial_capital,trade_profits,cumulati
     std_beta_series = beta_series_returns.std() * 100
     print(f"Std of beta series returns: {std_beta_series:.4f}")
 
+    sharpe_ratio = compute_sharpe_ratio(initial_capital,trade_profits)
+
     max_drawdown = compute_max_drawdown(initial_capital,cumulative_profit_series)
 
     key_metrics_df = pd.DataFrame({
     'Pair': f"{sym1} ~ {sym2}",
     'Total return (%)': cumulative_profit_series[-1]/initial_capital * 100,
+    'Sharpe ratio': sharpe_ratio,
     'Max drawdown (%)': max_drawdown,
     'Number of trades': len(trade_profits),
     'Non-stop loss win rate (%)': non_stop_loss_win_rate,
