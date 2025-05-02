@@ -676,6 +676,9 @@ def compute_key_metrics(sym1, sym2, S1,S2,initial_capital,trade_profits,cumulati
     #Compute average absolute percent delta betas
     average_absolute_percent_delta_beta = np.mean(mean_absolute_percent_delta_betas)
 
+    #Compute median absolute percent delta betas
+    median_absolute_percent_delta_beta = np.median(mean_absolute_percent_delta_betas)
+
     #Compute average trade duration
     mean_trade_duration = np.mean(trade_durations)
 
@@ -693,8 +696,12 @@ def compute_key_metrics(sym1, sym2, S1,S2,initial_capital,trade_profits,cumulati
     beta_series_returns = beta_series.pct_change().dropna()
 
     #Compute standard of beta series returns
-    std_beta_series = beta_series_returns.std() * 100
-    print(f"Std of beta series returns: {std_beta_series:.4f}")
+    std_beta_series = beta_series_returns.std() * 100 #Convert to percentage since beta_series_returns is in decimal format
+    print(f"Std of beta series returns: {std_beta_series:.4f}") 
+
+    #Compute Median Absolute Deviation of the beta series returns 
+    median = np.median(beta_series_returns)
+    mad = np.median(np.abs(beta_series_returns - median)) * 100 #Convert to percentage since beta_series_returns is in decimal format
 
     sharpe_ratio = compute_sharpe_ratio(initial_capital,trade_profits)
 
@@ -710,7 +717,9 @@ def compute_key_metrics(sym1, sym2, S1,S2,initial_capital,trade_profits,cumulati
     f'Mean trade duration/Reversion speed from threshold (mins)': mean_trade_duration,
     'Average entry beta': avg_entry_beta,
     'Mean Absolute Percent Delta Beta (%)': average_absolute_percent_delta_beta,
+    'Median Absolute Percent Delta Beta (%)': median_absolute_percent_delta_beta,
     'Beta series returns std (%)': std_beta_series,
+    'Beta series returns MAD (%)': mad,
     #'Spread series z-score std (%)': z_score_spread_std,
     'Average S1 trade returns (%)': average_S1_trade_returns,
     'Average S2 trade returns (%)': average_S2_trade_returns,

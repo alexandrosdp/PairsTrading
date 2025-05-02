@@ -1,0 +1,2 @@
+Pair,Total return (%),Number of trades,Non-stop loss win rate (%),Mean trade duration/Reversion speed from threshold (mins),Average entry beta,Mean Absolute Percent Delta Beta (%),Beta series returns std (%),Average S1 trade returns (%),Average S2 trade returns (%)
+MANAUSDT_2024_5m ~ SANDUSDT_2024_5m,16.86363601052558,108,74.07407407407408,360.60185185185185,0.896456335495675,15.196455141049007,2.5506617571969734,-0.35097348000838735,-0.23147566153389207
