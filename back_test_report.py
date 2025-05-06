@@ -113,8 +113,7 @@ def generate_back_test_report(prices,**params):
     # long_entries = trade_entries[trade_entries == 1]
     # short_entries = trade_entries[trade_entries == -1]
 
-    trade_profits, cumulative_profit_series, entry_times, exit_times = simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, beta_series, tx_cost)
-
+    trade_profits, net_trade_profits_S1, net_trade_profits_S2,cumulative_profit_series, entry_times, exit_times = simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, beta_series, tx_cost)
     #--------------------------------------------------------------------
     # Performance Metrics
     #--------------------------------------------------------------------
@@ -371,19 +370,33 @@ if __name__ == '__main__':
     #SOL and BNSOL
     #prices = pd.read_csv('binance_data/SOL_and_BNSOL/2025/5m/merged_closing_prices.csv', index_col=0, parse_dates=True)
 
-    prices = pd.read_csv('binance_data/top_100_tickers/2024/1m/merged_closing_prices.csv', index_col=0, parse_dates=True)
-    prices = prices[['XRP/USDT_2024_1m', 'ADA/USDT_2024_1m']]
+    #prices = pd.read_csv('binance_data/top_100_tickers/2024/1m/merged_closing_prices.csv', index_col=0, parse_dates=True)
+
+    #prices = prices[['XRP/USDT_2024_1m', 'ADA/USDT_2024_1m']]
+
+
+    #Final dataset:
+    prices = pd.read_csv('tardis_data/final_in_sample_dataset/final_in_sample_dataset_5min_2024.csv', index_col=0, parse_dates=True)
+
+    #Filter by XRP and ADA
+    #prices = prices[['XRPUSDT_2024_5m', 'ADAUSDT_2024_5m']]
+
+    #Filter by MANAUSDT_2024_5m ~ SANDUSDT_2024_5m
+    prices = prices[['MANAUSDT_2024_5m', 'SANDUSDT_2024_5m']]
+
+    #Filter by AXSUSDT_2024_5m ~ MANAUSDT_2024_5m
+    #prices = prices[['AXSUSDT_2024_5m', 'MANAUSDT_2024_5m']]
 
     params = {
     "initial_capital": 10_000.0,
-    "tx_cost": 0.00025,
-    "window_size": 1440,
-    "entry_threshold": 2,
+    "tx_cost": 0.00,
+    "window_size": 288,
+    "entry_threshold": 3,
     "exit_threshold": 0,
-    "stop_loss_threshold": 3,
+    "stop_loss_threshold": 4,
     "timeframe_str": "Timeframe: January - June (1min Data)",
     "year_str": "Year: 2024",
-    "min_pass_fraction": 0.5,
+    "min_pass_fraction": 0,
     "significance": 0.05
     }
 

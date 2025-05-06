@@ -17,7 +17,7 @@ def threshold_experiment(prices,entry_stop_map,initial_capital):
     window_size = 1440
     exit_threshold= 0
 
-    tx_cost = 0.00025 #Default transaction cost value
+    tx_cost = 0.000 #Default transaction cost value
 
     #Params:
     #Back test
@@ -42,7 +42,7 @@ def threshold_experiment(prices,entry_stop_map,initial_capital):
         # Generate trading signals (positions) based on the spread's z-score
         positions, trade_entries, trade_exits = backtest_pair_rolling(spread_series,S1,S2,zscore_series, entry_threshold, exit_threshold, stop_loss_threshold)
 
-        trade_profits, cumulative_profit_series, entry_times, exit_times = simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, beta_series, tx_cost)
+        trade_profits, net_trade_profits_S1, net_trade_profits_S2,cumulative_profit_series, entry_times, exit_times = simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, beta_series, tx_cost)
 
         percentage_returns_list[(entry_threshold, stop_loss_threshold)] = (cumulative_profit_series[-1]/initial_capital) * 100
 
@@ -59,9 +59,9 @@ def transaction_cost_experiment(prices,tx_costs_map,initial_capital):
     #Params:
     #--------------------------------
     window_size = 1440
-    entry_threshold= 2 #Default entry threshold value
+    entry_threshold= 3 #Default entry threshold value
     exit_threshold= 0
-    stop_loss_threshold= 3 #Default stop loss threshold value
+    stop_loss_threshold= 4 #Default stop loss threshold value
 
     #Params:
     #Back test
@@ -85,7 +85,7 @@ def transaction_cost_experiment(prices,tx_costs_map,initial_capital):
 
         print(f"\nTesting strategy with transaction cost: {tx_cost} ...")
 
-        trade_profits, cumulative_profit_series, entry_times, exit_times = simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, beta_series, tx_cost)
+        trade_profits, net_trade_profits_S1, net_trade_profits_S2,cumulative_profit_series, entry_times, exit_times = simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, beta_series, tx_cost)
 
         percentage_returns_list[tx_cost] = (cumulative_profit_series[-1]/initial_capital) * 100
 
