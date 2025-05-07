@@ -1,0 +1,256 @@
+
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import random
+from collections import deque
+from back_tester import backtest_pair_rolling, simulate_strategy_trade_pnl 
+
+def simulate_strategy(spread_window, price_window, entry, stop):
+    """
+    Placeholder for the user's existing simulation function.
+    It should take:
+      - spread_window: array of z-score spreads (length F + T)
+      - price_window: array of raw prices (same length)
+      - entry: entry threshold (in σ-units)
+      - stop: stop-loss threshold (in σ-units)
+    And return:
+      - profit (float) earned over the trading window
+    """
+    
+    positions, trade_entries, trade_exits = backtest_pair_rolling(spread_series,S1,S2,zscore_series, entry_threshold, exit_threshold, stop_loss_threshold)
+
+    trade_profits, net_trade_profits_S1, net_trade_profits_S2,cumulative_profit_series, entry_times, exit_times = simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, beta_series, tx_cost)
+
+
+
+
+    # User should replace this with their actual function
+    raise NotImplementedError("Replace simulate_strategy with your own implementation")
+
+
+class DQN(nn.Module):
+    """
+    Simple feed-forward neural network for Q-value approximation.
+    Input: flattened formation-window of z-score spreads (shape: [F])
+    Output: one Q-value per action (shape: [n_actions])
+    """
+    def __init__(self, input_dim: int, output_dim: int, hidden_dim: int = 64):
+        super(DQN, self).__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, output_dim)
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
+
+class ReplayBuffer:
+    """
+    Fixed-size circular buffer for experience replay.
+    Stores tuples of (state, action, reward, next_state, done).
+    """
+    def __init__(self, capacity: int):
+        self.buffer = deque(maxlen=capacity) # stores the most recent experiences. A deque is a data structure that allows for fast appends and pops from both ends.
+
+    def push(self, state, action, reward, next_state, done): #Add a new experience to the buffer. If the buffer is full, the oldest experience will be removed.
+        self.buffer.append((state, action, reward, next_state, done))
+
+    def sample(self, batch_size: int): # Sample a random batch (of size batch_size) of experiences from the buffer.
+        batch = random.sample(self.buffer, batch_size)
+        states, actions, rewards, next_states, dones = zip(*batch) # Unzip the batch into separate lists for each component of the experience tuple.
+        return ( #Converting lists to appropriate formats
+            np.vstack(states), #Stack the states vertically to create a 2D array.
+            np.array(actions, dtype=np.int64),
+            np.array(rewards, dtype=np.float32),
+            np.vstack(next_states),
+            np.array(dones, dtype=np.uint8)
+        )
+
+    def __len__(self):
+        return len(self.buffer) #Returns the current number of experiences in the buffer.
+
+
+class PairsTradingEnv:
+    """
+    Environment for the pairs trading DQN.
+    Each episode = one trading window (T days).
+    State = last F days of z-score spread.
+    Action = pick one (entry, stop-loss) threshold pair.
+    Reward = profit from simulate_strategy.
+    """
+    def __init__(self,
+                 spreads: np.ndarray, #Full z-score spread time series
+                 prices: np.ndarray, #Full raw price time series
+                 entry_stop_pairs: list, # List of (entry, stop-loss) pairs
+                 formation_window: int, # Length of formation window (F)
+                 trading_window: int): # Length of trading window (T)
+        
+        self.spreads = spreads
+        self.prices = prices
+        self.entry_stop_pairs = entry_stop_pairs
+        self.F = formation_window
+        self.T = trading_window
+
+        # number of non-overlapping episodes we can run
+        self.max_episodes = (len(spreads) - self.F) // self.T #For example, if F=30 and T=15, then the maximum number of episodes is (total_days - 30) // 15.
+        self.current_episode = 0 #Tracks the current episode index.
+
+    def reset(self):
+        """
+        Reset to the start of the next episode.
+        Returns the initial state (F-length spread history).
+        """
+        if self.current_episode >= self.max_episodes:
+            self.current_episode = 0 #If all episodes have been exhausted, the current_episode counter is reset to 0.
+        start = self.current_episode * self.T
+        state = self.spreads[start:start + self.F]
+        return state.astype(np.float32)
+
+    def step(self, action: int):
+        """
+        Execute ONE episode using the chosen action.
+        Returns: next_state, reward, done, info
+        """
+        idx = self.current_episode
+        start = idx * self.T # start of the current episode
+        # full window includes formation + trading
+        spread_window = self.spreads[start:start + self.F + self.T] #The spread window includes both the formation and trading windows.
+        price_window = self.prices[start:start + self.F + self.T] #The price window includes both the formation and trading windows.
+        entry, stop = self.entry_stop_pairs[action] #The selected entry and stop-loss thresholds based on the action taken.
+
+        # simulate_strategy should return profit over the T-day trading window
+        reward = simulate_strategy(spread_window, price_window, entry, stop)
+
+        # build next state by shifting formation window forward by T days
+        next_start = (idx + 1) * self.T
+        next_state = self.spreads[next_start:next_start + self.F].astype(np.float32) # The next state is the spread window for the next episode.
+
+        # done flag when we've exhausted all episodes
+        done = (idx + 1 >= self.max_episodes) #The episode is done when the current episode index exceeds the maximum number of episodes (done gets set to True).
+        self.current_episode += 1 # Increment the current episode index.
+
+        return next_state, float(reward), done, {} #An empty dictionary is returned as the info parameter, which can be used to pass additional information if needed.
+
+
+def train_dqn(spreads: np.ndarray,
+              prices: np.ndarray,
+              entry_stop_pairs: list,
+              F: int,
+              T: int,
+              num_epochs: int = 10,
+              batch_size: int = 32,
+              gamma: float = 0.99,
+              lr: float = 1e-3,
+              epsilon_start: float = 1.0,
+              epsilon_end: float = 0.01,
+              epsilon_decay: float = 0.995,
+              replay_capacity: int = 1000,
+              target_update_freq: int = 5, # After how many epochs to copy the online network’s weights into the target network.
+              hidden_dim: int = 64): # Number of neurons in each hidden layer of your DQN.
+    """
+    Main training loop for DQN.
+    - Builds environment, networks, replay buffer, and optimizer.
+    - Runs episodes in epochs to train the online network.
+    - Periodically syncs target network.
+    """
+
+    # Setup device, envoronment, and action space
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu") #Use GPU if available, otherwise use CPU.
+    env = PairsTradingEnv(spreads, prices, entry_stop_pairs, F, T) #Initialize the environment with the provided spreads, prices, entry-stop pairs, formation window, and trading window.
+    n_actions = len(entry_stop_pairs) # Number of discrete actions (entry-stop pairs).
+
+
+    # Create online and target networks
+    online_net = DQN(F, n_actions, hidden_dim).to(device) #The online network is the one that will be trained. The to device method moves the model to the specified device (GPU or CPU).
+    target_net = DQN(F, n_actions, hidden_dim).to(device) #The target network is used to stabilize training. It is a copy of the online network.
+    target_net.load_state_dict(online_net.state_dict()) # Initialize target network with the same weights as the online network.
+
+    # Create optimzer and replay buffer
+    optimizer = optim.Adam(online_net.parameters(), lr=lr)
+    replay_buffer = ReplayBuffer(replay_capacity)
+    epsilon = epsilon_start
+
+    # Training loop: Each epoch consists of running through all available trading-window episodes exactly once (in order), collecting rewards and experiences.
+    for epoch in range(1, num_epochs + 1):
+        state = env.reset() # Reset the environment to get the initial state.
+        epoch_rewards = []
+
+        # Loop through all episodes in this epoch
+        while True:
+            # ε-greedy action selection
+
+            #Explore with probability ε by picking a uniform random action.
+            if random.random() < epsilon:
+                action = random.randrange(n_actions)
+            else:
+                # Exploit by selecting the action with the highest Q-value from the online network.
+                with torch.no_grad():
+                    s_v = torch.from_numpy(state).unsqueeze(0).to(device) 
+                    q_vals = online_net(s_v)
+                    action = q_vals.argmax(dim=1).item()
+
+            next_state, reward, done, _ = env.step(action)
+            replay_buffer.push(state, action, reward, next_state, done)
+            epoch_rewards.append(reward)
+            state = next_state
+
+            # Perform learning step if enough data
+            if len(replay_buffer) >= batch_size:
+                states, actions, rewards, next_states, dones = replay_buffer.sample(batch_size) # Sample a random batch of experiences from the replay buffer.
+
+                #Convert to PyTorch tensors and move to device
+                states_v = torch.from_numpy(states).to(device) 
+                next_states_v = torch.from_numpy(next_states).to(device) 
+                actions_v = torch.tensor(actions, dtype=torch.int64, device=device)
+                rewards_v = torch.tensor(rewards, dtype=torch.float32, device=device)
+                dones_v = torch.tensor(dones, dtype=torch.bool, device=device)
+
+                # Q(s,a)
+                q_values = online_net(states_v)
+                state_action_values = q_values.gather(1, actions_v.unsqueeze(1)).squeeze(1) #extracts the Q-values corresponding to the actions taken (actions_v) in the sampled experiences. This ensures that only the Q-values for the actions actually taken are used in the loss calculation.
+
+                # max_a' Q_target(s', a')
+                with torch.no_grad(): # No gradient tracking needed for target network
+                    next_q_values = target_net(next_states_v)
+                    max_next_q_values = next_q_values.max(1)[0] #computes the maximum Q-value across all possible actions for each next state. This represents the best possible future reward.
+                    expected_values = rewards_v + gamma * max_next_q_values * (~dones_v) #~dones_v: Ensures that no future rewards are added if the episode has ended (done = True)
+
+                # compute loss and update network
+                loss = nn.MSELoss()(state_action_values, expected_values) # Mean Squared Error loss between the predicted Q-values and the expected Q-values.
+                optimizer.zero_grad()  # Clears the gradients of the online network to ensure that gradients from the previous step do not accumulate
+                loss.backward() #Computes the gradients of the loss with respect to the online network's parameters using backpropagation
+                optimizer.step() # Updates the online network's parameters using the computed gradients.
+
+            if done: #If we have exhausted all trading window episodes, break out of the loop.
+                break
+
+        # Decay exploration rate
+        epsilon = max(epsilon_end, epsilon * epsilon_decay)
+
+        # Periodically update target network
+        if epoch % target_update_freq == 0:
+            target_net.load_state_dict(online_net.state_dict())
+
+        avg_reward = np.mean(epoch_rewards)
+        print(f"Epoch {epoch:02d} | AvgReward: {avg_reward:.2f} | Epsilon: {epsilon:.3f}")
+
+    return online_net, replay_buffer
+
+
+# Example usage:
+if __name__ == "__main__":
+    # Load your precomputed z-score spreads and raw prices as NumPy arrays
+    spreads = np.load("zscores.npy")   # shape: (total_days,)
+    prices = np.load("prices.npy")     # same shape
+    # Define your discrete threshold pairs: [(entry1, stop1), (entry2, stop2), ...]
+    entry_stop_pairs = [(0.5, 2.5), (1.0, 3.0), (1.5, 4.0), (2.0, 4.5), (2.5, 5.0), (3.0, 5.5)]
+    # Training parameters
+    F, T = 30, 15
+    train_dqn(spreads, prices, entry_stop_pairs, F, T, num_epochs=20)
