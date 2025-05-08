@@ -1,34 +1,73 @@
 
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import random
 from collections import deque
-from back_tester import backtest_pair_rolling, simulate_strategy_trade_pnl 
+from back_tester import * 
 
-def simulate_strategy(spread_window, price_window, entry, stop):
+def simulate_strategy(spread_trading_window, price_trading_window, entry, stop):
     """
     Placeholder for the user's existing simulation function.
     It should take:
-      - spread_window: array of z-score spreads (length F + T)
-      - price_window: array of raw prices (same length)
+      - spread_trading_window: pd.Dataframe of z-score spreads for the trading window (length T)
+      - price_trading_window: pd.Dataframe of raw prices for the two assets over the trading windfow (same length)
       - entry: entry threshold (in σ-units)
       - stop: stop-loss threshold (in σ-units)
     And return:
-      - profit (float) earned over the trading window
+      - reward: An event based reward for the trading window
     """
+
     
-    positions, trade_entries, trade_exits = backtest_pair_rolling(spread_series,S1,S2,zscore_series, entry_threshold, exit_threshold, stop_loss_threshold)
+    sym1, sym2 = price_trading_window.columns
+    S1 = price_trading_window[sym1]
+    S2 = price_trading_window[sym2]
 
-    trade_profits, net_trade_profits_S1, net_trade_profits_S2,cumulative_profit_series, entry_times, exit_times = simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, beta_series, tx_cost)
+    # print("S1 TRADING WINDOW:")
+    # print(S1)
+    
+    positions, trade_entries, trade_exits = backtest_pair_rolling(S1=S1,
+                                                                  S2=S2,
+                                                                  zscore=spread_trading_window, 
+                                                                  entry_threshold = entry, 
+                                                                  exit_threshold = 0,  #The exit threshold is always the mean of the zscore
+                                                                  stop_loss_threshold = stop)
+    if not trade_exits: #If there are no trades, return 0
+        return 0.0
+
+    #Only focus on the first trade for now!
+    first_trade = trade_exits[0]['exit_type']
+
+    if first_trade == 'win':
+        return 1000.0
+    elif first_trade == 'loss':
+        return -1000.0
+    elif first_trade == 'forced_exit':
+        return -500.0
+    
+
+
+    # if (len(trade_exits) != 0): #If there are any trades
+
+    #     for trade_exit in trade_exits:
+
+    #         if(trade_exit['exit_type'] == 'win'):
+    #             reward = 1000
+    #         elif(trade_exit['exit_type'] == 'loss'):
+    #             reward = -1000
+    #         elif(trade_exit['exit_type'] == 'forced_exit'):
+    #             reward = -500
+    # else:
+    #     reward = 0
 
 
 
+    # a catch-all for any unexpected exit_type
+    return 0.0
 
-    # User should replace this with their actual function
-    raise NotImplementedError("Replace simulate_strategy with your own implementation")
 
 
 class DQN(nn.Module):
@@ -86,8 +125,8 @@ class PairsTradingEnv:
     Reward = profit from simulate_strategy.
     """
     def __init__(self,
-                 spreads: np.ndarray, #Full z-score spread time series
-                 prices: np.ndarray, #Full raw price time series
+                 spreads: pd.DataFrame, #Full z-score spread time series
+                 prices: pd.DataFrame, #Full raw price time series
                  entry_stop_pairs: list, # List of (entry, stop-loss) pairs
                  formation_window: int, # Length of formation window (F)
                  trading_window: int): # Length of trading window (T)
@@ -109,31 +148,33 @@ class PairsTradingEnv:
         """
         if self.current_episode >= self.max_episodes:
             self.current_episode = 0 #If all episodes have been exhausted, the current_episode counter is reset to 0.
-        start = self.current_episode * self.T
-        state = self.spreads[start:start + self.F]
-        return state.astype(np.float32)
+        start = self.current_episode * self.T #Index of the start of the current episode.
+        state = self.spreads.iloc[start : start + self.F].to_numpy().astype(np.float32) #Slide the window forward by T days to get the formation window. The trader wants to trade immediately afte their previous trading window ended, so this allows for that (see MS whiteboard)
+        return state
 
     def step(self, action: int):
         """
         Execute ONE episode using the chosen action.
         Returns: next_state, reward, done, info
         """
-        idx = self.current_episode
-        start = idx * self.T # start of the current episode
-        # full window includes formation + trading
-        spread_window = self.spreads[start:start + self.F + self.T] #The spread window includes both the formation and trading windows.
-        price_window = self.prices[start:start + self.F + self.T] #The price window includes both the formation and trading windows.
-        entry, stop = self.entry_stop_pairs[action] #The selected entry and stop-loss thresholds based on the action taken.
 
+        start = self.current_episode * self.T # start of the current episode
+        # full window includes formation + trading
+
+        spread_trading_window = self.spreads.iloc[start + self.F : start + self.F + self.T] #The spread trading window
+        prices_trading_window = self.prices.iloc[start + self.F : start + self.F + self.T] #The price trading window
+
+        entry, stop = self.entry_stop_pairs[action] #The selected entry and stop-loss thresholds based on the action taken.
+        
         # simulate_strategy should return profit over the T-day trading window
-        reward = simulate_strategy(spread_window, price_window, entry, stop)
+        reward = simulate_strategy(spread_trading_window, prices_trading_window, entry, stop)
 
         # build next state by shifting formation window forward by T days
-        next_start = (idx + 1) * self.T
-        next_state = self.spreads[next_start:next_start + self.F].astype(np.float32) # The next state is the spread window for the next episode.
+        next_start = (self.current_episode + 1) * self.T
+        next_state = self.spreads[next_start:next_start + self.F].to_numpy().astype(np.float32) # The next state is the spread window for the next episode.
 
         # done flag when we've exhausted all episodes
-        done = (idx + 1 >= self.max_episodes) #The episode is done when the current episode index exceeds the maximum number of episodes (done gets set to True).
+        done = (self.current_episode + 1 >= self.max_episodes) #The episode is done when the current episode index exceeds the maximum number of episodes (done gets set to True).
         self.current_episode += 1 # Increment the current episode index.
 
         return next_state, float(reward), done, {} #An empty dictionary is returned as the info parameter, which can be used to pass additional information if needed.
@@ -177,10 +218,15 @@ def train_dqn(spreads: np.ndarray,
     replay_buffer = ReplayBuffer(replay_capacity)
     epsilon = epsilon_start
 
+    epoch_loss_history = []  # collect avg batch loss per epochh
+    reward_history = [] # collect average reward per epoch
+
     # Training loop: Each epoch consists of running through all available trading-window episodes exactly once (in order), collecting rewards and experiences.
     for epoch in range(1, num_epochs + 1):
         state = env.reset() # Reset the environment to get the initial state.
         epoch_rewards = []
+        epoch_batch_losses = []  # collect minibatch losses this epoch
+
 
         # Loop through all episodes in this epoch
         while True:
@@ -224,6 +270,7 @@ def train_dqn(spreads: np.ndarray,
 
                 # compute loss and update network
                 loss = nn.MSELoss()(state_action_values, expected_values) # Mean Squared Error loss between the predicted Q-values and the expected Q-values.
+                epoch_batch_losses.append(loss.item())
                 optimizer.zero_grad()  # Clears the gradients of the online network to ensure that gradients from the previous step do not accumulate
                 loss.backward() #Computes the gradients of the loss with respect to the online network's parameters using backpropagation
                 optimizer.step() # Updates the online network's parameters using the computed gradients.
@@ -238,19 +285,48 @@ def train_dqn(spreads: np.ndarray,
         if epoch % target_update_freq == 0:
             target_net.load_state_dict(online_net.state_dict())
 
+         # record average batch loss this epoch
+        avg_epoch_loss = np.mean(epoch_batch_losses) if epoch_batch_losses else 0.0
+        epoch_loss_history.append(avg_epoch_loss)
+
         avg_reward = np.mean(epoch_rewards)
+        reward_history.append(avg_reward) #Append the average reward for this epoch to the reward history for later analysis.
         print(f"Epoch {epoch:02d} | AvgReward: {avg_reward:.2f} | Epsilon: {epsilon:.3f}")
 
-    return online_net, replay_buffer
+    return online_net, replay_buffer,epoch_loss_history, reward_history #Return the trained online network, replay buffer, loss history, and reward history.
 
 
 # Example usage:
 if __name__ == "__main__":
+
+
+    #Data
+    prices = pd.read_csv('tardis_data/final_in_sample_dataset/final_in_sample_dataset_5min_2024.csv', index_col=0, parse_dates=True)
+    prices = prices[['MANAUSDT_2024_5m', 'SANDUSDT_2024_5m']]
+
+    #Only use the first month of prices for now
+    start_date = pd.to_datetime('2024-01-01 00:00:00')
+    end_date = pd.to_datetime('2024-01-31 23:55:00') 
+
+    prices = prices.loc[start_date:end_date] # 2880 rows = 1 month of 5-minute data
+
+    #Params for spread calculation
+    window_size = 288 # It seems like as this increases, the percent absolute delta beta error decreases!
+
     # Load your precomputed z-score spreads and raw prices as NumPy arrays
-    spreads = np.load("zscores.npy")   # shape: (total_days,)
-    prices = np.load("prices.npy")     # same shape
+    sym1, sym2 = prices.columns
+    S1 = prices[sym1]
+    S2 = prices[sym2]
+
+    # Compute the spread series and beta_series 
+    spread_series, beta_series, alpha_series = compute_spread_series(S1, S2, window_size)
+    #print(f"Hedge ratio (beta) for {sym1} ~ {sym2}: {beta:.4f}")
+
+    # Compute rolling z-score using the provided helper function.
+    zscore_series, rolling_mean, rolling_std = compute_rolling_zscore(spread_series, window_size)
+    
     # Define your discrete threshold pairs: [(entry1, stop1), (entry2, stop2), ...]
     entry_stop_pairs = [(0.5, 2.5), (1.0, 3.0), (1.5, 4.0), (2.0, 4.5), (2.5, 5.0), (3.0, 5.5)]
     # Training parameters
-    F, T = 30, 15
-    train_dqn(spreads, prices, entry_stop_pairs, F, T, num_epochs=20)
+    F, T = 200, 100
+    online_net, replay_buffer,loss_history, reward_history = train_dqn(zscore_series, prices, entry_stop_pairs, F, T, num_epochs=20)

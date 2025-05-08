@@ -105,7 +105,7 @@ def generate_back_test_report(prices,**params):
     zscore_series, rolling_mean, rolling_std = compute_rolling_zscore(spread_series, window_size)
 
     # Generate trading signals (positions) based on the spread's z-score
-    positions, trade_entries, trade_exits = backtest_pair_rolling(spread_series,S1,S2,zscore_series, entry_threshold, exit_threshold, stop_loss_threshold)
+    positions, trade_entries, trade_exits = backtest_pair_rolling(S1,S2,zscore_series, entry_threshold, exit_threshold, stop_loss_threshold)
 
 
     # # Identify trade entry points: position changes from 0 to ±1

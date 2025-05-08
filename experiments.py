@@ -40,7 +40,7 @@ def threshold_experiment(prices,entry_stop_map,initial_capital):
         print(f"\nTesting strategy with entry threshold: {entry_threshold} and stop loss threshold: {stop_loss_threshold} ...")
 
         # Generate trading signals (positions) based on the spread's z-score
-        positions, trade_entries, trade_exits = backtest_pair_rolling(spread_series,S1,S2,zscore_series, entry_threshold, exit_threshold, stop_loss_threshold)
+        positions, trade_entries, trade_exits = backtest_pair_rolling(S1,S2,zscore_series, entry_threshold, exit_threshold, stop_loss_threshold)
 
         trade_profits, net_trade_profits_S1, net_trade_profits_S2,cumulative_profit_series, entry_times, exit_times = simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, beta_series, tx_cost)
 
@@ -78,7 +78,7 @@ def transaction_cost_experiment(prices,tx_costs_map,initial_capital):
     zscore_series, rolling_mean, rolling_std = compute_rolling_zscore(spread_series, window_size)
 
     # Generate trading signals (positions) based on the spread's z-score
-    positions, trade_entries, trade_exits = backtest_pair_rolling(spread_series,S1,S2,zscore_series, entry_threshold, exit_threshold, stop_loss_threshold)
+    positions, trade_entries, trade_exits = backtest_pair_rolling(S1,S2,zscore_series, entry_threshold, exit_threshold, stop_loss_threshold)
 
 
     for tx_cost in list(tx_costs_map.values()):

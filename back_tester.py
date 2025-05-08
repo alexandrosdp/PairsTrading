@@ -125,7 +125,7 @@ def compute_rolling_zscore(spread_series, window_size):
 
 
 def backtest_pair_rolling(
-    spread_series, S1, S2, zscore, entry_threshold=1.0, exit_threshold=0.0, stop_loss_threshold=2.0
+    S1, S2, zscore, entry_threshold=1.0, exit_threshold=0.0, stop_loss_threshold=2.0
 ):
     """
     A bar-based backtest that does NOT do linear interpolation,
@@ -237,7 +237,7 @@ def backtest_pair_rolling(
                     positions.append(0)
 
         # CASE 2: We already have a position
-        else:
+        else:          
             if position == 1:  # LONG SPREAD
                 # Normal exit => if zscore >= -exit_threshold => 'win'
                 if current_z >= -exit_threshold:
@@ -298,17 +298,30 @@ def backtest_pair_rolling(
                     stop_out       = True
                 positions.append(position)
 
+
+    #Check if we are still in a position at the end of the backtest
+    if position != 0:
+
+        trade_exits.append({
+            'time': current_index,
+            'S1':   current_S1,
+            'S2':   current_S2,
+            'z':    current_z,
+            'exit_type': 'forced_exit' #We are forced to exit the position as we are at the end of the backtest
+        })
+
+
     # Convert positions list to Series
-    positions = pd.Series(positions, index=spread_series.index)
+    positions = pd.Series(positions, index=zscore.index)
 
     # Print basic stats
     total_closed = len(trade_exits)
     wins  = sum(1 for e in trade_exits if e['exit_type'] == 'win')
     losses= sum(1 for e in trade_exits if e['exit_type'] == 'loss')
 
-    print(f"Total trades closed: {total_closed} (Wins={wins}, Losses={losses})")
-    if total_closed > 0:
-        print(f"Win rate: {wins / total_closed:.2f}")
+    # print(f"Total trades closed: {total_closed} (Wins={wins}, Losses={losses})")
+    # if total_closed > 0:
+    #     print(f"Win rate: {wins / total_closed:.2f}")
 
     return positions, trade_entries, trade_exits
 
@@ -760,7 +773,7 @@ def backtest(prices_df, **params):
     zscore_series, rolling_mean, rolling_std = compute_rolling_zscore(spread_series, window_size)
 
     # Gather trade entries and exits
-    positions, trade_entries, trade_exits = backtest_pair_rolling(spread_series,S1,S2,zscore_series, entry_threshold, exit_threshold, stop_loss_threshold)
+    positions, trade_entries, trade_exits = backtest_pair_rolling(S1,S2,zscore_series, entry_threshold, exit_threshold, stop_loss_threshold)
 
     #Compute trade profits
     trade_profits, net_trade_profits_S1, net_trade_profits_S2,cumulative_profit_series, entry_times, exit_times = simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, beta_series, tx_cost)
