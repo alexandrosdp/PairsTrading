@@ -223,6 +223,7 @@ def train_dqn(spreads: np.ndarray,
 
     # Training loop: Each epoch consists of running through all available trading-window episodes exactly once (in order), collecting rewards and experiences.
     for epoch in range(1, num_epochs + 1):
+        
         state = env.reset() # Reset the environment to get the initial state.
         epoch_rewards = []
         epoch_batch_losses = []  # collect minibatch losses this epoch
@@ -289,7 +290,7 @@ def train_dqn(spreads: np.ndarray,
         avg_epoch_loss = np.mean(epoch_batch_losses) if epoch_batch_losses else 0.0
         epoch_loss_history.append(avg_epoch_loss)
 
-        avg_reward = np.mean(epoch_rewards)
+        avg_reward = np.mean(epoch_rewards) #Record the average reward for this epoch, which is mean of the rewards collected over the episodes in this epoch.
         reward_history.append(avg_reward) #Append the average reward for this epoch to the reward history for later analysis.
         print(f"Epoch {epoch:02d} | AvgReward: {avg_reward:.2f} | Epsilon: {epsilon:.3f}")
 
