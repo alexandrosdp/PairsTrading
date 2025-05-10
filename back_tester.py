@@ -1539,15 +1539,15 @@ def simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, bet
     
     #initial_capital = 10_000.0 #Reset initial capital
 
-    # Print diagnostics.
-    print(f"Total trades: {len(trade_profits)}")
-    print(f"Number of profitable trades (proft > 0): {sum(1 for profit in trade_profits if profit > 0)}")
-    print(f"Number of non-profitable trades (proft < 0): {sum(1 for profit in trade_profits if profit < 0)}")
-    print(f"Total return €: {cumulative_profit[-1]:.2f}")
-    print(f"Total return %: {(cumulative_profit[-1] / initial_capital) * 100:.2f}%")
-    print(f"Long spread losses: {long_spread_loss_count}, Short spread losses: {short_spread_loss_count}")
-    print(f"Number of Dual-leg profitable trades: {number_of_dual_leg_profits}")
-    print(f"Dual leg trade profit rate: {number_of_dual_leg_profits / len(trade_profits) * 100:.2f}%")
+    # # Print diagnostics.
+    # print(f"Total trades: {len(trade_profits)}")
+    # print(f"Number of profitable trades (proft > 0): {sum(1 for profit in trade_profits if profit > 0)}")
+    # print(f"Number of non-profitable trades (proft < 0): {sum(1 for profit in trade_profits if profit < 0)}")
+    # print(f"Total return €: {cumulative_profit[-1]:.2f}")
+    # print(f"Total return %: {(cumulative_profit[-1] / initial_capital) * 100:.2f}%")
+    # print(f"Long spread losses: {long_spread_loss_count}, Short spread losses: {short_spread_loss_count}")
+    # print(f"Number of Dual-leg profitable trades: {number_of_dual_leg_profits}")
+    # print(f"Dual leg trade profit rate: {number_of_dual_leg_profits / len(trade_profits) * 100:.2f}%")
 
 
 

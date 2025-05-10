@@ -9,12 +9,12 @@ import random
 from collections import deque
 from back_tester import * 
 
-def simulate_strategy(spread_trading_window, price_trading_window, entry, stop):
+def simulate_strategy(spread_trading_window,prices_trading_window,beta_series_trading_window,initial_capital,tx_cost, entry, stop):
     """
     Placeholder for the user's existing simulation function.
     It should take:
       - spread_trading_window: pd.Dataframe of z-score spreads for the trading window (length T)
-      - price_trading_window: pd.Dataframe of raw prices for the two assets over the trading windfow (same length)
+      - prices_trading_window: pd.Dataframe of raw prices for the two assets over the trading windfow (same length)
       - entry: entry threshold (in σ-units)
       - stop: stop-loss threshold (in σ-units)
     And return:
@@ -22,12 +22,10 @@ def simulate_strategy(spread_trading_window, price_trading_window, entry, stop):
     """
 
     
-    sym1, sym2 = price_trading_window.columns
-    S1 = price_trading_window[sym1]
-    S2 = price_trading_window[sym2]
+    sym1, sym2 = prices_trading_window.columns
+    S1 = prices_trading_window[sym1]
+    S2 = prices_trading_window[sym2]
 
-    # print("S1 TRADING WINDOW:")
-    # print(S1)
     
     positions, trade_entries, trade_exits = backtest_pair_rolling(S1=S1,
                                                                   S2=S2,
@@ -35,18 +33,22 @@ def simulate_strategy(spread_trading_window, price_trading_window, entry, stop):
                                                                   entry_threshold = entry, 
                                                                   exit_threshold = 0,  #The exit threshold is always the mean of the zscore
                                                                   stop_loss_threshold = stop)
-    if not trade_exits: #If there are no trades, return 0
-        return 0.0
+    
+    if not trade_exits: #If there are no trades, return no reward and no profit
+        return 0.0,0.0
+
+    #Calculate trade profit for first trade in this trading window
+    trade_profits, _,_,_,_,_ = simulate_strategy_trade_pnl([trade_entries[0]], [trade_exits[0]], initial_capital, beta_series_trading_window, tx_cost) #We wrap the trade entries and exits in lists to match the expected input format of the simulate_strategy_trade_pnl function.
 
     #Only focus on the first trade for now!
     first_trade = trade_exits[0]['exit_type']
 
     if first_trade == 'win':
-        return 1000.0
+        return 1000.0,trade_profits
     elif first_trade == 'loss':
-        return -1000.0
+        return -1000.0,trade_profits
     elif first_trade == 'forced_exit':
-        return -500.0
+        return -500.0,trade_profits
     
 
 
@@ -66,7 +68,7 @@ def simulate_strategy(spread_trading_window, price_trading_window, entry, stop):
 
 
     # a catch-all for any unexpected exit_type
-    return 0.0
+    return 0.0,trade_profits
 
 
 
@@ -96,7 +98,7 @@ class ReplayBuffer:
     Stores tuples of (state, action, reward, next_state, done).
     """
     def __init__(self, capacity: int):
-        self.buffer = deque(maxlen=capacity) # stores the most recent experiences. A deque is a data structure that allows for fast appends and pops from both ends.
+        self.buffer = deque(maxlen=capacity) # stores the most recent experiences. A deque is a data structure that allows for fast appends and pops from both ends. When it gets full, we remove the first element (oldest episode) and append a new episode at the end, hence why we chose a deque
 
     def push(self, state, action, reward, next_state, done): #Add a new experience to the buffer. If the buffer is full, the oldest experience will be removed.
         self.buffer.append((state, action, reward, next_state, done))
@@ -127,12 +129,18 @@ class PairsTradingEnv:
     def __init__(self,
                  spreads: pd.DataFrame, #Full z-score spread time series
                  prices: pd.DataFrame, #Full raw price time series
+                 beta_series: pd.Series, #Full beta time series
+                 initial_capital: float, # Initial capital for the strategy
+                 tx_cost: float, # Transaction cost (not used in this version)
                  entry_stop_pairs: list, # List of (entry, stop-loss) pairs
                  formation_window: int, # Length of formation window (F)
                  trading_window: int): # Length of trading window (T)
         
         self.spreads = spreads
         self.prices = prices
+        self.beta_series = beta_series # Placeholder for beta series
+        self.initial_capital = initial_capital # Initial capital for the strategy
+        self.tx_cost = tx_cost
         self.entry_stop_pairs = entry_stop_pairs
         self.F = formation_window
         self.T = trading_window
@@ -163,11 +171,12 @@ class PairsTradingEnv:
 
         spread_trading_window = self.spreads.iloc[start + self.F : start + self.F + self.T] #The spread trading window
         prices_trading_window = self.prices.iloc[start + self.F : start + self.F + self.T] #The price trading window
+        beta_series_trading_window = self.beta_series.iloc[start + self.F : start + self.F + self.T] #The beta series trading window
 
         entry, stop = self.entry_stop_pairs[action] #The selected entry and stop-loss thresholds based on the action taken.
         
         # simulate_strategy should return profit over the T-day trading window
-        reward = simulate_strategy(spread_trading_window, prices_trading_window, entry, stop)
+        reward,profits = simulate_strategy(spread_trading_window,prices_trading_window,beta_series_trading_window,self.initial_capital,self.tx_cost, entry, stop)
 
         # build next state by shifting formation window forward by T days
         next_start = (self.current_episode + 1) * self.T
@@ -177,11 +186,14 @@ class PairsTradingEnv:
         done = (self.current_episode + 1 >= self.max_episodes) #The episode is done when the current episode index exceeds the maximum number of episodes (done gets set to True).
         self.current_episode += 1 # Increment the current episode index.
 
-        return next_state, float(reward), done, {} #An empty dictionary is returned as the info parameter, which can be used to pass additional information if needed.
+        return next_state, float(reward),profits, done, {} #An empty dictionary is returned as the info parameter, which can be used to pass additional information if needed.
 
 
 def train_dqn(spreads: np.ndarray,
               prices: np.ndarray,
+              beta_series: np.ndarray,
+              initial_capital: float,
+              tx_cost: float,
               entry_stop_pairs: list,
               F: int,
               T: int,
@@ -204,7 +216,7 @@ def train_dqn(spreads: np.ndarray,
 
     # Setup device, envoronment, and action space
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu") #Use GPU if available, otherwise use CPU.
-    env = PairsTradingEnv(spreads, prices, entry_stop_pairs, F, T) #Initialize the environment with the provided spreads, prices, entry-stop pairs, formation window, and trading window.
+    env = PairsTradingEnv(spreads, prices,beta_series,initial_capital,tx_cost, entry_stop_pairs, F, T) #Initialize the environment with the provided spreads, prices, entry-stop pairs, formation window, and trading window.
     n_actions = len(entry_stop_pairs) # Number of discrete actions (entry-stop pairs).
 
 
@@ -243,7 +255,7 @@ def train_dqn(spreads: np.ndarray,
                     q_vals = online_net(s_v)
                     action = q_vals.argmax(dim=1).item()
 
-            next_state, reward, done, _ = env.step(action)
+            next_state, reward,profits, done, _ = env.step(action)
             replay_buffer.push(state, action, reward, next_state, done)
             epoch_rewards.append(reward)
             state = next_state
@@ -295,6 +307,72 @@ def train_dqn(spreads: np.ndarray,
         print(f"Epoch {epoch:02d} | AvgReward: {avg_reward:.2f} | Epsilon: {epsilon:.3f}")
 
     return online_net, replay_buffer,epoch_loss_history, reward_history #Return the trained online network, replay buffer, loss history, and reward history.
+
+
+
+
+def evaluate_dqn(
+    online_net,           # your trained DQN
+    spreads: pd.Series,   # test‐set z‐scores
+    prices: pd.DataFrame, # test‐set prices
+    beta_series: pd.Series, # test‐set betas
+    initial_capital: float, # Initial capital for the strategy
+    tx_cost: float, # Transaction cost (not used in this version)
+    entry_stop_pairs: list,
+    F: int, T: int,
+):
+    """
+    Runs the greedy policy (epsilon=0) over all test episodes,
+    returns reward list and simple classification metrics.
+    """
+    device = next(online_net.parameters()).device
+    #env = PairsTradingEnv(spreads, prices, entry_stop_pairs, F, T)
+    env = PairsTradingEnv(spreads, prices,beta_series,initial_capital,tx_cost, entry_stop_pairs, F, T) #Initialize the environment with the provided spreads, prices, entry-stop pairs, formation window, and trading window.
+
+
+    test_rewards = []
+    actions = []
+    trade_profits = []
+    win, loss, forced, none = 0, 0, 0, 0
+
+    state = env.reset() # Reset the environment to get the initial state.
+    done = False # Initialize the done flag to False.
+    # Force greedy policy
+    while not done:
+
+        # Greedy action
+        with torch.no_grad():
+            s_v = torch.from_numpy(state).unsqueeze(0).to(device)
+            action = online_net(s_v).argmax(dim=1).item() # Select the action with the highest Q-value from the online network.
+        next_state,reward,profits, done, _ = env.step(action)
+
+        state = next_state # Update the state to the next state.
+
+        action = entry_stop_pairs[action] # Get the entry and stop-loss thresholds for the selected action.
+        actions.append(action) # Append the action taken to the actions list.
+
+        test_rewards.append(reward)
+        if   reward == 1000.0:  win    += 1
+        elif reward == -1000.0: loss   += 1
+        elif reward == -500.0:  forced += 1
+        else:                   none   += 1
+
+        trade_profits.append(profits) # Append the profits from the trade to the trade profits list.
+
+    total = len(test_rewards)
+    metrics = {
+        "avg_reward":    np.mean(test_rewards),
+        "win_rate":      win/total,
+        "loss_rate":     loss/total,
+        "forced_rate":   forced/total,
+        "no_trade_rate": none/total,
+    }
+    return test_rewards,trade_profits,actions,metrics
+
+
+
+
+
 
 
 # Example usage:
