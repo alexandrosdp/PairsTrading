@@ -36,11 +36,13 @@ def simulate_strategy(spread_trading_window,prices_trading_window,beta_series_tr
                                                                   exit_threshold = 0,  #The exit threshold is always the mean of the zscore
                                                                   stop_loss_threshold = stop)
     
-    if not trade_exits: #If there are no trades, return no reward and no profit
-        return 0.0,0.0
+    if not trade_exits: #If there are no trades, return no reward no profit and No entry (None)
+        return 0.0,0.0,None
 
     #Calculate trade profit for first trade in this trading window
     trade_profits, _,_,_,_,_ = simulate_strategy_trade_pnl([trade_entries[0]], [trade_exits[0]], initial_capital, beta_series_trading_window, tx_cost) #We wrap the trade entries and exits in lists to match the expected input format of the simulate_strategy_trade_pnl function.
+
+    trade_entry = trade_entries[0] #The first trade entry
 
     #print("TRADE ENTRIES: ",[trade_entries[0]], "TRADE EXITS: ",[trade_exits[0]], "TRADE PROFITS: ",trade_profits)
 
@@ -48,11 +50,11 @@ def simulate_strategy(spread_trading_window,prices_trading_window,beta_series_tr
     first_trade = trade_exits[0]['exit_type']
 
     if first_trade == 'win':
-        return 1000.0,trade_profits
+        return 1000.0,trade_profits,trade_entry
     elif first_trade == 'loss':
-        return -1000.0,trade_profits
+        return -1000.0,trade_profits,trade_entry
     elif first_trade == 'forced_exit':
-        return -500.0,trade_profits
+        return -500.0,trade_profits,trade_entry
     
 
 
@@ -72,7 +74,7 @@ def simulate_strategy(spread_trading_window,prices_trading_window,beta_series_tr
 
 
     # a catch-all for any unexpected exit_type
-    return 0.0,trade_profits
+    return 0.0,trade_profits,trade_entry
 
 
 
@@ -180,7 +182,7 @@ class PairsTradingEnv:
         entry, stop = self.entry_stop_pairs[action] #The selected entry and stop-loss thresholds based on the action taken.
         
         # simulate_strategy should return profit over the T-day trading window
-        reward,profits = simulate_strategy(spread_trading_window,prices_trading_window,beta_series_trading_window,self.initial_capital,self.tx_cost, entry, stop)
+        reward,profits,trade_entry = simulate_strategy(spread_trading_window,prices_trading_window,beta_series_trading_window,self.initial_capital,self.tx_cost, entry, stop)
 
         # build next state by shifting formation window forward by T days
         next_start = (self.current_episode + 1) * self.T
@@ -190,7 +192,7 @@ class PairsTradingEnv:
         done = (self.current_episode + 1 >= self.max_episodes) #The episode is done when the current episode index exceeds the maximum number of episodes (done gets set to True).
         self.current_episode += 1 # Increment the current episode index.
 
-        return next_state, float(reward),profits, done, {} #An empty dictionary is returned as the info parameter, which can be used to pass additional information if needed.
+        return next_state, float(reward),profits,trade_entry, done, {} #An empty dictionary is returned as the info parameter, which can be used to pass additional information if needed.
 
 
 def train_dqn(spreads: np.ndarray,
@@ -259,7 +261,7 @@ def train_dqn(spreads: np.ndarray,
                     q_vals = online_net(s_v)
                     action = q_vals.argmax(dim=1).item()
 
-            next_state, reward,profits, done, _ = env.step(action)
+            next_state, reward,profits,trade_entry, done, _ = env.step(action)
             replay_buffer.push(state, action, reward, next_state, done)
             epoch_rewards.append(reward)
             state = next_state
@@ -358,15 +360,18 @@ def evaluate_dqn(
             action = online_net(s_v).argmax(dim=1).item() # Select the action with the highest Q-value from the online network.
         entry, stop = entry_stop_pairs[action] #Remeber action is an index into the entry_stop_pairs list, which contains tuples of (entry, stop-loss) pairs.
 
+      
+
+        next_state,reward,profits,trade_entry, done, _ = env.step(action)
+
         # Record episode metadata
         episodes.append({
             'trade_start': trade_start,
             'trade_end':   trade_end,
+            'trade_entry_metadata': trade_entry,
             'entry':       entry,
             'stop':        stop
         })
-
-        next_state,reward,profits, done, _ = env.step(action)
 
         #Collect results
         actions.append((entry,stop)) # Append the action taken to the actions list.
