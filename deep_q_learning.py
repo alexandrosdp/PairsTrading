@@ -8,6 +8,8 @@ import torch.optim as optim
 import random
 from collections import deque
 from back_tester import * 
+import matplotlib.pyplot as plt
+
 
 def simulate_strategy(spread_trading_window,prices_trading_window,beta_series_trading_window,initial_capital,tx_cost, entry, stop):
     """
@@ -39,6 +41,8 @@ def simulate_strategy(spread_trading_window,prices_trading_window,beta_series_tr
 
     #Calculate trade profit for first trade in this trading window
     trade_profits, _,_,_,_,_ = simulate_strategy_trade_pnl([trade_entries[0]], [trade_exits[0]], initial_capital, beta_series_trading_window, tx_cost) #We wrap the trade entries and exits in lists to match the expected input format of the simulate_strategy_trade_pnl function.
+
+    #print("TRADE ENTRIES: ",[trade_entries[0]], "TRADE EXITS: ",[trade_exits[0]], "TRADE PROFITS: ",trade_profits)
 
     #Only focus on the first trade for now!
     first_trade = trade_exits[0]['exit_type']
@@ -334,31 +338,50 @@ def evaluate_dqn(
     actions = []
     trade_profits = []
     win, loss, forced, none = 0, 0, 0, 0
+    episodes = [] # List to store episode metadata
 
     state = env.reset() # Reset the environment to get the initial state.
     done = False # Initialize the done flag to False.
     # Force greedy policy
     while not done:
+        
+        # Get the current episode index and calculate the start and end indices for the trading window (To be used for plotting)
+        ep_idx     = env.current_episode #Starts at 0
+        start_pos  = ep_idx * T 
+        form_end   = start_pos + F
+        trade_start = spreads.index[form_end]
+        trade_end   = spreads.index[form_end + T - 1] #We subtract 1 because the python range function is exclusive of the end index (remember if you specify 5 at the end, it will get the first 5 elements, but the last element will  actually be at index 4, not 5).
 
         # Greedy action
         with torch.no_grad():
             s_v = torch.from_numpy(state).unsqueeze(0).to(device)
             action = online_net(s_v).argmax(dim=1).item() # Select the action with the highest Q-value from the online network.
+        entry, stop = entry_stop_pairs[action] #Remeber action is an index into the entry_stop_pairs list, which contains tuples of (entry, stop-loss) pairs.
+
+        # Record episode metadata
+        episodes.append({
+            'trade_start': trade_start,
+            'trade_end':   trade_end,
+            'entry':       entry,
+            'stop':        stop
+        })
+
         next_state,reward,profits, done, _ = env.step(action)
 
-        state = next_state # Update the state to the next state.
-
-        action = entry_stop_pairs[action] # Get the entry and stop-loss thresholds for the selected action.
-        actions.append(action) # Append the action taken to the actions list.
-
+        #Collect results
+        actions.append((entry,stop)) # Append the action taken to the actions list.
+        trade_profits.append(profits) # Append the profits from the trade to the trade profits list.
         test_rewards.append(reward)
         if   reward == 1000.0:  win    += 1
         elif reward == -1000.0: loss   += 1
         elif reward == -500.0:  forced += 1
         else:                   none   += 1
 
-        trade_profits.append(profits) # Append the profits from the trade to the trade profits list.
+        # Update the state to the next state.
+        state = next_state 
 
+
+    #Compute summary metrics
     total = len(test_rewards)
     metrics = {
         "avg_reward":    np.mean(test_rewards),
@@ -367,7 +390,81 @@ def evaluate_dqn(
         "forced_rate":   forced/total,
         "no_trade_rate": none/total,
     }
-    return test_rewards,trade_profits,actions,metrics
+
+    return test_rewards,trade_profits,actions,episodes,metrics
+
+
+
+def plot_episodes(prices: pd.DataFrame,
+                  zscores: pd.Series,
+                  episodes: list,
+                  F: int,
+                  T: int,
+                  episode_idx: int = None):
+    """
+    Plot either all episodes or a single episode zoom.
+
+    Args:
+        prices: DataFrame indexed by datetime, columns=[S1, S2]
+        zscores: Series indexed by datetime of the z-score spread
+        episodes: List of dicts with keys:
+            'trade_start', 'trade_end', 'entry', 'stop'
+        F: Formation window length
+        T: Trading window length
+        episode_idx: If int, zoom on that episode; if None, plot all
+    """
+    if episode_idx is None:
+        # Full-series plot
+        fig, (ax_price, ax_z) = plt.subplots(2, 1, sharex=True, figsize=(14, 8))
+        ax_price.plot(prices.index, prices.iloc[:, 0], label=prices.columns[0])
+        ax_price.plot(prices.index, prices.iloc[:, 1], label=prices.columns[1])
+        ax_price.set_ylabel("Price"); ax_price.legend(loc="upper left")
+        ax_price.set_title("Asset Prices with Trading Windows")
+        ax_z.plot(zscores.index, zscores.values, color='black')
+        ax_z.set_ylabel("Z-score Spread"); ax_z.set_title("Z-score with Thresholds")
+        for ep in episodes:
+            t0, t1 = ep['trade_start'], ep['trade_end']
+            entry, stop = ep['entry'], ep['stop']
+            ax_price.axvspan(t0, t1, color='orange', alpha=0.1)
+            ax_z.axvspan(t0, t1, color='orange', alpha=0.1)
+            ax_z.hlines([ entry, -entry], t0, t1, colors='green', linestyles='--')
+            ax_z.hlines([ stop,  -stop ], t0, t1, colors='red',   linestyles='--')
+        ax_z.set_xlabel("Time")
+        plt.tight_layout(); plt.show()
+    else:
+        # Single-episode zoom
+        ep = episodes[episode_idx]
+
+        print(f"Episode {ep}:")
+
+        # compute formation start by going back F bars from trade_start
+        pos_t0 = zscores.index.get_loc(ep['trade_start']) # get the numerical index position of trade_start (remember the index of the zscore series is datetime, and in the next line we want to do a slice (pos_t0 - F), which requires a numerical index)
+        form_start = zscores.index[pos_t0 - F] # formation start
+        trade_start, trade_end = ep['trade_start'], ep['trade_end']
+        entry, stop = ep['entry'], ep['stop']
+        prices_win = prices.loc[form_start:trade_end] #window is from formation start to trade end
+        zscores_win = zscores.loc[form_start:trade_end] #window is from formation start to trade end
+
+        #Plot prices over the formation and trading window for this episode
+        fig, (ax_price, ax_z) = plt.subplots(2, 1, sharex=True, figsize=(10, 6))
+        ax_price.plot(prices_win.index, prices_win.iloc[:,0], label=prices_win.columns[0])
+        ax_price.plot(prices_win.index, prices_win.iloc[:,1], label=prices_win.columns[1])
+        ax_price.axvline(trade_start, color='blue', linestyle='--', label='Trade Start')
+        ax_price.axvline(trade_end,   color='red',  linestyle='--', label='Trade End')
+        ax_price.set_ylabel("Price"); ax_price.legend(loc='upper left')
+        ax_price.set_title(f"Episode {episode_idx}: Formation+Trading")
+
+        #Plot the zscore over the formation and trading window for this episode
+        ax_z.plot(zscores_win.index, zscores_win.values, color='black')
+        ax_z.axvspan(trade_start, trade_end, color='orange', alpha=0.1)
+        ax_z.hlines([ entry, -entry], trade_start, trade_end, colors='green', linestyles='--', label='Entry ±σ')
+        ax_z.hlines([ stop,  -stop ], trade_start, trade_end, colors='red',   linestyles='--', label='Stop ±σ')
+        ax_z.hlines(0, trade_start, trade_end, colors='black', linestyles='--', label='Mean')
+        ax_z.axvline(trade_start, color='blue', linestyle='--')
+        ax_z.axvline(trade_end,   color='red',  linestyle='--')
+        ax_z.set_ylabel("Z-score"); ax_z.legend(loc='upper left')
+        ax_z.set_xlabel("Time")
+        plt.tight_layout(); plt.show()
 
 
 
