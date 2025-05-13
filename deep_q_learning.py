@@ -9,6 +9,7 @@ import random
 from collections import deque
 from back_tester import * 
 import matplotlib.pyplot as plt
+import copy
 
 
 def simulate_strategy(spread_trading_window,prices_trading_window,beta_series_trading_window,initial_capital,tx_cost, entry, stop):
@@ -89,8 +90,10 @@ class DQN(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
+            #nn.Dropout(p=dropout_p),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
+            #nn.Dropout(p=dropout_p),
             nn.Linear(hidden_dim, output_dim)
         )
 
@@ -133,7 +136,7 @@ class PairsTradingEnv:
     Reward = profit from simulate_strategy.
     """
     def __init__(self,
-                 spreads: pd.DataFrame, #Full z-score spread time series
+                 spreads: pd.Series, #Full z-score spread time series
                  prices: pd.DataFrame, #Full raw price time series
                  beta_series: pd.Series, #Full beta time series
                  initial_capital: float, # Initial capital for the strategy
@@ -195,9 +198,12 @@ class PairsTradingEnv:
         return next_state, float(reward),profits,trade_entry, done, {} #An empty dictionary is returned as the info parameter, which can be used to pass additional information if needed.
 
 
-def train_dqn(spreads: np.ndarray,
-              prices: np.ndarray,
-              beta_series: np.ndarray,
+def train_dqn(spreads_train: pd.Series,
+              prices_train: pd.DataFrame,
+              beta_series_train: pd.Series,
+              spreads_val: pd.Series,
+              prices_val: pd.DataFrame,
+              beta_series_val: pd.Series,
               initial_capital: float,
               tx_cost: float,
               entry_stop_pairs: list,
@@ -222,7 +228,7 @@ def train_dqn(spreads: np.ndarray,
 
     # Setup device, envoronment, and action space
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu") #Use GPU if available, otherwise use CPU.
-    env = PairsTradingEnv(spreads, prices,beta_series,initial_capital,tx_cost, entry_stop_pairs, F, T) #Initialize the environment with the provided spreads, prices, entry-stop pairs, formation window, and trading window.
+    env = PairsTradingEnv(spreads_train,prices_train,beta_series_train,initial_capital,tx_cost, entry_stop_pairs, F, T) #Initialize the environment with the provided spreads, prices, entry-stop pairs, formation window, and trading window.
     n_actions = len(entry_stop_pairs) # Number of discrete actions (entry-stop pairs).
 
 
@@ -232,16 +238,25 @@ def train_dqn(spreads: np.ndarray,
     target_net.load_state_dict(online_net.state_dict()) # Initialize target network with the same weights as the online network.
 
     # Create optimzer and replay buffer
-    optimizer = optim.Adam(online_net.parameters(), lr=lr)
+    optimizer = optim.Adam(online_net.parameters(), lr=lr) #Adam optimizer is used for training the online network. The learning rate and weight decay are specified.
     replay_buffer = ReplayBuffer(replay_capacity)
     epsilon = epsilon_start
 
     epoch_loss_history = []  # collect avg batch loss per epochh
     reward_history = [] # collect average reward per epoch
 
+
+    # Initialize the best validation reward, weights and patience
+    best_val_reward = -float('inf')
+    best_weights    = copy.deepcopy(online_net.state_dict())
+    patience        = 0
+    patience_limit  = 20
+
+    validation_reward_history = [] # collect validation reward per epoch
+
     # Training loop: Each epoch consists of running through all available trading-window episodes exactly once (in order), collecting rewards and experiences.
     for epoch in range(1, num_epochs + 1):
-        
+
         state = env.reset() # Reset the environment to get the initial state.
         epoch_rewards = []
         epoch_batch_losses = []  # collect minibatch losses this epoch
@@ -259,7 +274,7 @@ def train_dqn(spreads: np.ndarray,
                 with torch.no_grad():
                     s_v = torch.from_numpy(state).unsqueeze(0).to(device) 
                     q_vals = online_net(s_v)
-                    action = q_vals.argmax(dim=1).item()
+                    action = q_vals.argmax(dim=1).item()  
 
             next_state, reward,profits,trade_entry, done, _ = env.step(action)
             replay_buffer.push(state, action, reward, next_state, done)
@@ -269,7 +284,7 @@ def train_dqn(spreads: np.ndarray,
             # Perform learning step if enough data
             if len(replay_buffer) >= batch_size:
                 states, actions, rewards, next_states, dones = replay_buffer.sample(batch_size) # Sample a random batch of experiences from the replay buffer.
-
+            
                 #Convert to PyTorch tensors and move to device
                 states_v = torch.from_numpy(states).to(device) 
                 next_states_v = torch.from_numpy(next_states).to(device) 
@@ -294,15 +309,26 @@ def train_dqn(spreads: np.ndarray,
                 loss.backward() #Computes the gradients of the loss with respect to the online network's parameters using backpropagation
                 optimizer.step() # Updates the online network's parameters using the computed gradients.
 
+                # ─── Soft‐update target network ───────────────────────────
+                #nstead of a hard copy every K epochs, we nudge θ⁻ toward θ each step
+                #In this case we are retaining 99% of the previous target weight and adding 1% of the online network’s weight every step. This “soft” update smooths the transition, rather than doing a full 100% copy all at once.
+                τ = 0.01
+                for tgt_param, src_param in zip(target_net.parameters(),
+                                                online_net.parameters()): #airs them in the same order: the first weight in the target net with the first weight in the online net, the first bias with the first bias, and so on
+                    tgt_param.data.mul_(1.0 - τ) #Multiply target network parameters by (1 - τ) 
+                    tgt_param.data.add_(τ * src_param.data) #Add the scaled online network parameters to the target network parameters. 
+
+
             if done: #If we have exhausted all trading window episodes, break out of the loop.
                 break
 
         # Decay exploration rate
         epsilon = max(epsilon_end, epsilon * epsilon_decay)
 
-        # Periodically update target network
-        if epoch % target_update_freq == 0:
-            target_net.load_state_dict(online_net.state_dict())
+        
+         # # Periodically update target network
+        # if epoch % target_update_freq == 0:
+        #     target_net.load_state_dict(online_net.state_dict())
 
          # record average batch loss this epoch
         avg_epoch_loss = np.mean(epoch_batch_losses) if epoch_batch_losses else 0.0
@@ -312,7 +338,39 @@ def train_dqn(spreads: np.ndarray,
         reward_history.append(avg_reward) #Append the average reward for this epoch to the reward history for later analysis.
         print(f"Epoch {epoch:02d} | AvgReward: {avg_reward:.2f} | Epsilon: {epsilon:.3f}")
 
-    return online_net, replay_buffer,epoch_loss_history, reward_history #Return the trained online network, replay buffer, loss history, and reward history.
+
+        # Start checking validation performance after 100 epochs
+
+        #Put the online network in evaluation mode
+        # ——————————————— Validation pass ————————————————————
+        _,_,_,_,val_metrics = evaluate_dqn(
+            online_net,
+            spreads_val, prices_val, beta_series_val,
+            initial_capital, tx_cost,
+            entry_stop_pairs, F, T
+        )
+
+        avg_val_reward = val_metrics['avg_reward']
+        validation_reward_history.append(avg_val_reward) #Append the average reward for this epoch to the validation reward history for later analysis.
+
+        # print(f"Epoch {epoch:03d} | ValReward: {avg_val_reward:.2f}  "
+        #     f"(best={best_val_reward:.2f}, patience={patience})")
+
+        # if avg_val_reward > best_val_reward:
+        #     best_val_reward = avg_val_reward
+        #     best_weights    = copy.deepcopy(online_net.state_dict())
+        #     patience        = 0
+        # else:
+        #     patience += 1
+        #     if patience >= patience_limit:
+        #         print("⏹ Early stopping triggered")
+        #         break
+
+    
+    # # Reload best‐epoch weights and test
+    # online_net.load_state_dict(best_weights)
+
+    return online_net, replay_buffer,epoch_loss_history, reward_history,validation_reward_history #Return the trained online network, replay buffer, loss history, and reward history.
 
 
 
@@ -477,37 +535,37 @@ def plot_episodes(prices: pd.DataFrame,
 
 
 
-# Example usage:
-if __name__ == "__main__":
+# # Example usage:
+# if __name__ == "__main__":
 
 
-    #Data
-    prices = pd.read_csv('tardis_data/final_in_sample_dataset/final_in_sample_dataset_5min_2024.csv', index_col=0, parse_dates=True)
-    prices = prices[['MANAUSDT_2024_5m', 'SANDUSDT_2024_5m']]
+#     #Data
+#     prices = pd.read_csv('tardis_data/final_in_sample_dataset/final_in_sample_dataset_5min_2024.csv', index_col=0, parse_dates=True)
+#     prices = prices[['MANAUSDT_2024_5m', 'SANDUSDT_2024_5m']]
 
-    #Only use the first month of prices for now
-    start_date = pd.to_datetime('2024-01-01 00:00:00')
-    end_date = pd.to_datetime('2024-01-31 23:55:00') 
+#     #Only use the first month of prices for now
+#     start_date = pd.to_datetime('2024-01-01 00:00:00')
+#     end_date = pd.to_datetime('2024-01-31 23:55:00') 
 
-    prices = prices.loc[start_date:end_date] # 2880 rows = 1 month of 5-minute data
+#     prices = prices.loc[start_date:end_date] # 2880 rows = 1 month of 5-minute data
 
-    #Params for spread calculation
-    window_size = 288 # It seems like as this increases, the percent absolute delta beta error decreases!
+#     #Params for spread calculation
+#     window_size = 288 # It seems like as this increases, the percent absolute delta beta error decreases!
 
-    # Load your precomputed z-score spreads and raw prices as NumPy arrays
-    sym1, sym2 = prices.columns
-    S1 = prices[sym1]
-    S2 = prices[sym2]
+#     # Load your precomputed z-score spreads and raw prices as NumPy arrays
+#     sym1, sym2 = prices.columns
+#     S1 = prices[sym1]
+#     S2 = prices[sym2]
 
-    # Compute the spread series and beta_series 
-    spread_series, beta_series, alpha_series = compute_spread_series(S1, S2, window_size)
-    #print(f"Hedge ratio (beta) for {sym1} ~ {sym2}: {beta:.4f}")
+#     # Compute the spread series and beta_series 
+#     spread_series, beta_series, alpha_series = compute_spread_series(S1, S2, window_size)
+#     #print(f"Hedge ratio (beta) for {sym1} ~ {sym2}: {beta:.4f}")
 
-    # Compute rolling z-score using the provided helper function.
-    zscore_series, rolling_mean, rolling_std = compute_rolling_zscore(spread_series, window_size)
+#     # Compute rolling z-score using the provided helper function.
+#     zscore_series, rolling_mean, rolling_std = compute_rolling_zscore(spread_series, window_size)
     
-    # Define your discrete threshold pairs: [(entry1, stop1), (entry2, stop2), ...]
-    entry_stop_pairs = [(0.5, 2.5), (1.0, 3.0), (1.5, 4.0), (2.0, 4.5), (2.5, 5.0), (3.0, 5.5)]
-    # Training parameters
-    F, T = 200, 100
-    online_net, replay_buffer,loss_history, reward_history = train_dqn(zscore_series, prices, entry_stop_pairs, F, T, num_epochs=20)
+#     # Define your discrete threshold pairs: [(entry1, stop1), (entry2, stop2), ...]
+#     entry_stop_pairs = [(0.5, 2.5), (1.0, 3.0), (1.5, 4.0), (2.0, 4.5), (2.5, 5.0), (3.0, 5.5)]
+#     # Training parameters
+#     F, T = 200, 100
+#     online_net, replay_buffer,loss_history, reward_history = train_dqn(zscore_series, prices, entry_stop_pairs, F, T, num_epochs=20)
