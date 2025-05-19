@@ -37,11 +37,17 @@ def simulate_strategy(spread_trading_window,prices_trading_window,beta_series_tr
                                                                   exit_threshold = 0,  #The exit threshold is always the mean of the zscore
                                                                   stop_loss_threshold = stop)
     
-    if not trade_exits: #If there are no trades, return no reward no profit and No entry (None)
-        return 0.0,0.0,None
+    if not trade_exits: #If there are no trades, return no reward no profit No entry (None), and no cumulative profit series
+        return 0.0,0.0,None,None
 
     #Calculate trade profit for first trade in this trading window
-    trade_profits, _,_,_,_,_ = simulate_strategy_trade_pnl([trade_entries[0]], [trade_exits[0]], initial_capital, beta_series_trading_window, tx_cost) #We wrap the trade entries and exits in lists to match the expected input format of the simulate_strategy_trade_pnl function.
+    trade_profits, _, _,cumulative_profit_series, _, _ = simulate_strategy_trade_pnl([trade_entries[0]], [trade_exits[0]], initial_capital, beta_series_trading_window, tx_cost) #We wrap the trade entries and exits in lists to match the expected input format of the simulate_strategy_trade_pnl function.
+
+    trade_exit_time = trade_exits[0]['time'] #The first trade exit
+    
+    trade_profits = (trade_exit_time,trade_profits) #A tuple containing the time of the trade exit and the profit from the trade
+
+    #Return trade profits as a pandas series
 
     trade_entry = trade_entries[0] #The first trade entry
 
@@ -51,11 +57,11 @@ def simulate_strategy(spread_trading_window,prices_trading_window,beta_series_tr
     first_trade = trade_exits[0]['exit_type']
 
     if first_trade == 'win':
-        return 1000.0,trade_profits,trade_entry
+        return 1000.0,trade_profits,cumulative_profit_series,trade_entry
     elif first_trade == 'loss':
-        return -1000.0,trade_profits,trade_entry
+        return -1000.0,trade_profits,cumulative_profit_series,trade_entry
     elif first_trade == 'forced_exit':
-        return -500.0,trade_profits,trade_entry
+        return -500.0,trade_profits,cumulative_profit_series,trade_entry
     
 
 
@@ -75,7 +81,7 @@ def simulate_strategy(spread_trading_window,prices_trading_window,beta_series_tr
 
 
     # a catch-all for any unexpected exit_type
-    return 0.0,trade_profits,trade_entry
+    return 0.0,trade_profits,cumulative_profit_series,trade_entry
 
 
 
@@ -185,7 +191,7 @@ class PairsTradingEnv:
         entry, stop = self.entry_stop_pairs[action] #The selected entry and stop-loss thresholds based on the action taken.
         
         # simulate_strategy should return profit over the T-day trading window
-        reward,profits,trade_entry = simulate_strategy(spread_trading_window,prices_trading_window,beta_series_trading_window,self.initial_capital,self.tx_cost, entry, stop)
+        reward,profits,cumulative_profit_series,trade_entry = simulate_strategy(spread_trading_window,prices_trading_window,beta_series_trading_window,self.initial_capital,self.tx_cost, entry, stop)
 
         # build next state by shifting formation window forward by T days
         next_start = (self.current_episode + 1) * self.T
@@ -195,7 +201,7 @@ class PairsTradingEnv:
         done = (self.current_episode + 1 >= self.max_episodes) #The episode is done when the current episode index exceeds the maximum number of episodes (done gets set to True).
         self.current_episode += 1 # Increment the current episode index.
 
-        return next_state, float(reward),profits,trade_entry, done, {} #An empty dictionary is returned as the info parameter, which can be used to pass additional information if needed.
+        return next_state, float(reward),profits,cumulative_profit_series,trade_entry, done, {} #An empty dictionary is returned as the info parameter, which can be used to pass additional information if needed.
 
 
 def train_dqn(spreads_train: pd.Series,
@@ -245,16 +251,23 @@ def train_dqn(spreads_train: pd.Series,
     reward_history = [] # collect average reward per epoch
 
 
-    # Initialize the best validation reward, weights and patience
-    best_val_reward = -float('inf')
-    best_weights    = copy.deepcopy(online_net.state_dict())
-    patience        = 0
-    patience_limit  = 20
+    # # Initialize the best validation reward, weights and patience
+    # best_val_reward = -float('inf')
+    # best_weights    = copy.deepcopy(online_net.state_dict())
+    # patience        = 0
+    # patience_limit  = 20
 
     validation_reward_history = [] # collect validation reward per epoch
 
+    win_rate_history = [] #Record the number of wins per episode
+    loss_rate_history = [] #Record the number of losses per episode
+    forced_exit_rate_history = [] #Record the number of forced exits per episode
+    no_trade_rate_history = [] #Record the number of no trades per episode
+
     # Training loop: Each epoch consists of running through all available trading-window episodes exactly once (in order), collecting rewards and experiences.
     for epoch in range(1, num_epochs + 1):
+
+        wins_this_epoch,losses_this_epoch,forced_exits_this_epoch,no_trades_this_epoch = 0,0,0,0 # Initialize the number of wins for this epoch
 
         state = env.reset() # Reset the environment to get the initial state.
         epoch_rewards = []
@@ -275,15 +288,22 @@ def train_dqn(spreads_train: pd.Series,
                     q_vals = online_net(s_v)
                     action = q_vals.argmax(dim=1).item()  
 
-            next_state, reward,profits,trade_entry, done, _ = env.step(action)
+            next_state, reward,profits,cumulative_profit_series,trade_entry, done, _ = env.step(action)
             replay_buffer.push(state, action, reward, next_state, done)
             epoch_rewards.append(reward)
+
+            if   reward == 1000.0:  wins_this_epoch    += 1
+            elif reward == -1000.0: losses_this_epoch   += 1
+            elif reward == -500.0:  forced_exits_this_epoch += 1
+            else:                   no_trades_this_epoch   += 1
+
             state = next_state
 
             # Perform learning step if enough data
             if len(replay_buffer) >= batch_size:
                 states, actions, rewards, next_states, dones = replay_buffer.sample(batch_size) # Sample a random batch of experiences from the replay buffer.
-            
+
+
                 #Convert to PyTorch tensors and move to device
                 states_v = torch.from_numpy(states).to(device) 
                 next_states_v = torch.from_numpy(next_states).to(device) 
@@ -324,6 +344,11 @@ def train_dqn(spreads_train: pd.Series,
         # Decay exploration rate
         epsilon = max(epsilon_end, epsilon * epsilon_decay)
 
+        #After cycling through all episodes in this epoch, we can record the win rate for this epoch.
+        win_rate_history.append(wins_this_epoch / env.max_episodes)
+        loss_rate_history.append(losses_this_epoch / env.max_episodes)
+        forced_exit_rate_history.append(forced_exits_this_epoch / env.max_episodes)
+        no_trade_rate_history.append(no_trades_this_epoch / env.max_episodes)
         
          # # Periodically update target network
         # if epoch % target_update_freq == 0:
@@ -342,7 +367,7 @@ def train_dqn(spreads_train: pd.Series,
 
         #Put the online network in evaluation mode
         # ——————————————— Validation pass ————————————————————
-        _,_,_,_,val_metrics = evaluate_dqn(
+        _,_,_,_,_,val_metrics = evaluate_dqn(
             online_net,
             spreads_val, prices_val, beta_series_val,
             initial_capital, tx_cost,
@@ -369,7 +394,7 @@ def train_dqn(spreads_train: pd.Series,
     # # Reload best‐epoch weights and test
     # online_net.load_state_dict(best_weights)
 
-    return online_net, replay_buffer,epoch_loss_history, reward_history,validation_reward_history #Return the trained online network, replay buffer, loss history, and reward history.
+    return online_net, replay_buffer,epoch_loss_history, reward_history,validation_reward_history,win_rate_history,loss_rate_history,forced_exit_rate_history,no_trade_rate_history #Return the trained online network, replay buffer, loss history, and reward history.
 
 
 
@@ -419,7 +444,7 @@ def evaluate_dqn(
 
       
 
-        next_state,reward,profits,trade_entry, done, _ = env.step(action)
+        next_state,reward,profits,cumulative_profit_series,trade_entry, done, _ = env.step(action)
 
         # Record episode metadata
         episodes.append({
@@ -453,7 +478,7 @@ def evaluate_dqn(
         "no_trade_rate": none/total,
     }
 
-    return test_rewards,trade_profits,actions,episodes,metrics
+    return test_rewards,trade_profits,cumulative_profit_series,actions,episodes,metrics
 
 
 
