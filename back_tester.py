@@ -129,7 +129,7 @@ def compute_rolling_zscore(spread_series, window_size):
 
 
 def backtest_pair_rolling(
-    S1, S2, zscore, entry_threshold=1.0, exit_threshold=0.0, stop_loss_threshold=2.0
+    S1, S2, zscore, entry_threshold=1.0, exit_threshold=0.0, stop_loss_threshold=2.0, agent_trader=False
 ):
     """
     A bar-based backtest that does NOT do linear interpolation,
@@ -171,8 +171,9 @@ def backtest_pair_rolling(
         current_S1 = S1.loc[current_index]
         current_S2 = S2.loc[current_index]
 
+        
         # Initialization: first bar
-        if t == 0:
+        if t == 0 and agent_trader == False: #Only do this if you are not using the agent trader
             positions.append(0)
             continue
 
@@ -207,6 +208,9 @@ def backtest_pair_rolling(
                 # positions.append(0)
 
             else:
+
+                
+
                 # If zscore >= +entry_threshold => short spread
                 if current_z >= entry_threshold:
                     position      = -1

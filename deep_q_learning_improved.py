@@ -4,6 +4,7 @@
 
 import numpy as np
 import pandas as pd
+import scipy
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -46,6 +47,7 @@ def simulate_strategy(
         entry_threshold=entry_thr,
         exit_threshold=0.0,     # mean-reversion
         stop_loss_threshold=stop_thr,
+        agent_trader=True
     )
 
     # 3) if we never even crossed the chosen entry band → negative reward
@@ -157,7 +159,9 @@ class PairsTradingEnv:
 
         self.state_features = [
             np.array([
-            cycle.mean(), cycle.std(), len(cycle)
+            cycle.mean(), cycle.std(), len(cycle),
+            cycle.min(), cycle.max(),
+            scipy.stats.skew(cycle),
             ], dtype=np.float32)
             for cycle in self.spread_cycles
         ]
@@ -311,6 +315,11 @@ def train_dqn(spreads_train: pd.Series,
         initial_capital, tx_cost,
         entry_stop_pairs)
     
+    print("Number of cycles:", len(env.spread_cycles))
+    print("CYCLES:")
+    print("-------")
+    print(env.spread_cycles)
+    
     # print("Number of cycles:", len(env.spread_cycles))
 
     # print("First cycle:")
@@ -345,6 +354,11 @@ def train_dqn(spreads_train: pd.Series,
     # patience_limit  = 20
 
     validation_reward_history = [] # collect validation reward per epoch
+    win_rate_history = [] # collect average win rate per epoch
+    loss_rate_history = [] # collect average loss rate per epoch
+    forced_rate_history = [] # collect average forced exit rate per epoch
+    none_rate_history = [] # collect average no trade rate per epoch
+    
 
     # Training loop: Each epoch consists of running through all available trading-window episodes exactly once (in order), collecting rewards and experiences.
     for epoch in range(1, num_epochs + 1):
@@ -352,7 +366,7 @@ def train_dqn(spreads_train: pd.Series,
         state = env.reset() # Reset the environment to get the initial state.
         epoch_rewards = []
         epoch_batch_losses = []  # collect minibatch losses this epoch
-
+        win_count = loss_count = forced_count = none_count = 0
 
         # Loop through all episodes in this epoch
         while True:
@@ -369,6 +383,20 @@ def train_dqn(spreads_train: pd.Series,
                     action = q_vals.argmax(dim=1).item()  
 
             next_state, reward, done, info = env.step(action) 
+
+                
+            entry_meta = info['entry_meta']
+            exit_meta  = info['exit_meta']
+            profit     = info['profit']
+
+            exit_type = exit_meta['exit_type'] if exit_meta is not None else 'none'
+
+
+            if   exit_type == 'win':          win_count    += 1
+            elif exit_type == 'loss':    loss_count   += 1
+            elif exit_type == 'forced_exit':  forced_count += 1
+            elif exit_type == 'none':         none_count   += 1
+
 
             replay_buffer.push(state, action, reward, next_state, done)
             epoch_rewards.append(reward)
@@ -399,10 +427,10 @@ def train_dqn(spreads_train: pd.Series,
 
 
                 # compute loss and update network
-                loss = nn.MSELoss()(state_action_values, expected_values) # Mean Squared Error loss between the predicted Q-values and the expected Q-values.
-                epoch_batch_losses.append(loss.item())
+                td_loss = nn.MSELoss()(state_action_values, expected_values) # Mean Squared Error loss between the predicted Q-values and the expected Q-values.
+                epoch_batch_losses.append(td_loss.item())
                 optimizer.zero_grad()  # Clears the gradients of the online network to ensure that gradients from the previous step do not accumulate
-                loss.backward() #Computes the gradients of the loss with respect to the online network's parameters using backpropagation
+                td_loss.backward() #Computes the gradients of the loss with respect to the online network's parameters using backpropagation
                 optimizer.step() # Updates the online network's parameters using the computed gradients.
 
                 # ─── Soft‐update target network ───────────────────────────
@@ -420,7 +448,7 @@ def train_dqn(spreads_train: pd.Series,
 
         # Decay exploration rate
         epsilon = max(epsilon_end, epsilon * epsilon_decay)
-
+        
         
          # # Periodically update target network
         # if epoch % target_update_freq == 0:
@@ -434,6 +462,17 @@ def train_dqn(spreads_train: pd.Series,
         reward_history.append(avg_reward) #Append the average reward for this epoch to the reward history for later analysis.
         print(f"Epoch {epoch:02d} | AvgReward: {avg_reward:.2f} | Epsilon: {epsilon:.3f}")
 
+        #Win rates
+        total = win_count + loss_count + forced_count + none_count
+        win_rate = win_count / total if total > 0 else 0
+        loss_rate = loss_count / total if total > 0 else 0
+        forced_rate = forced_count / total if total > 0 else 0
+        none_rate = none_count / total if total > 0 else 0
+
+        win_rate_history.append(win_rate) #Append the win rate for this epoch to the win rate history for later analysis.
+        loss_rate_history.append(loss_rate) #Append the loss rate for this epoch to the loss rate history for later analysis.
+        forced_rate_history.append(forced_rate) #Append the forced exit rate for this epoch to the forced exit rate history for later analysis.
+        none_rate_history.append(none_rate) #Append the no trade rate for this epoch to the no trade rate history for later analysis.
 
         # Start checking validation performance after 100 epochs
 
@@ -449,10 +488,17 @@ def train_dqn(spreads_train: pd.Series,
         avg_val_reward = val_metrics['avg_reward']
         validation_reward_history.append(avg_val_reward) #Append the average reward for this epoch to the validation reward history for later analysis.
     
+    training_metrics = {
+        "win_rates": win_rate_history,
+        "loss_rates": loss_rate_history,
+        "forced_rates": forced_rate_history,
+        "no_trade_rates": none_rate_history
+    }
+
     # # Reload best‐epoch weights and test
     # online_net.load_state_dict(best_weights)
 
-    return online_net, replay_buffer,epoch_loss_history, reward_history,validation_reward_history #Return the trained online network, replay buffer, loss history, and reward history.
+    return online_net, replay_buffer,epoch_loss_history, reward_history,validation_reward_history,training_metrics #Return the trained online network, replay buffer, loss history, and reward history.
 
 
 
@@ -509,6 +555,8 @@ def evaluate_dqn(
 
         exit_type = exit_meta['exit_type'] if exit_meta is not None else 'none'
 
+
+
         # 5) Record what just happened
         episodes.append({
             'cycle_idx':        k,
@@ -532,7 +580,7 @@ def evaluate_dqn(
     # 7) Compute simple metrics
     total = len(test_rewards)
 
-    metrics = {
+    test_metrics = {
         "avg_reward":    np.mean(test_rewards),
         "win_rate":      win/total,
         "loss_rate":     loss/total,
@@ -540,7 +588,7 @@ def evaluate_dqn(
         "no_trade_rate": none/total,
     }
 
-    return test_rewards, trade_profits, actions, episodes, metrics
+    return test_rewards, trade_profits, actions, episodes, test_metrics
 
 
 def plot_episodes(prices: pd.DataFrame,
