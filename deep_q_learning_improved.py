@@ -1,5 +1,7 @@
 
 
+
+
 import numpy as np
 import pandas as pd
 import torch
@@ -12,70 +14,66 @@ import matplotlib.pyplot as plt
 import copy
 
 
-def simulate_strategy(spread_trading_window,prices_trading_window,beta_series_trading_window,initial_capital,tx_cost, entry, stop):
+def simulate_strategy(
+    spread_trading_window: pd.Series,
+    prices_trading_window: pd.DataFrame,
+    beta_series_trading_window: pd.Series,
+    initial_capital: float,
+    tx_cost: float,
+    entry_thr: float,
+    stop_thr: float,
+):
     """
-    Placeholder for the user's existing simulation function.
-    It should take:
-      - spread_trading_window: pd.Dataframe of z-score spreads for the trading window (length T)
-      - prices_trading_window: pd.Dataframe of raw prices for the two assets over the trading windfow (same length)
-      - entry: entry threshold (in σ-units)
-      - stop: stop-loss threshold (in σ-units)
-    And return:
-      - reward: An event based reward for the trading window
-    """
+    Run one backtest over exactly this divergence→reversion cycle (no fixed T).
 
-    
+    Returns:
+      reward (float),  profit (float),  entry_meta (dict),  exit_meta (dict)
+    Reward is shaped purely on the event:
+      - miss      = never hit entry_thr   → reward = -1
+      - win       = hit entry_thr & mean-revert   → reward = +1
+      - stop_loss = hit entry_thr then stop_loss → reward = -1
+    """
+    # 1) peel off S1/S2 series
     sym1, sym2 = prices_trading_window.columns
     S1 = prices_trading_window[sym1]
     S2 = prices_trading_window[sym2]
 
-    
-    positions, trade_entries, trade_exits = backtest_pair_rolling(S1=S1,
-                                                                  S2=S2,
-                                                                  zscore=spread_trading_window, 
-                                                                  entry_threshold = entry, 
-                                                                  exit_threshold = 0,  #The exit threshold is always the mean of the zscore
-                                                                  stop_loss_threshold = stop)
-    
-    if not trade_exits: #If there are no trades, return no reward no profit and No entry (None)
-        return 0.0,0.0,None
+    # 2) backtest, get all entry/exit events in this window
+    positions, trade_entries, trade_exits = backtest_pair_rolling(
+        S1=S1,
+        S2=S2,
+        zscore=spread_trading_window,
+        entry_threshold=entry_thr,
+        exit_threshold=0.0,     # mean-reversion
+        stop_loss_threshold=stop_thr,
+    )
 
-    #Calculate trade profit for first trade in this trading window
-    trade_profits, _,_,_,_,_ = simulate_strategy_trade_pnl([trade_entries[0]], [trade_exits[0]], initial_capital, beta_series_trading_window, tx_cost) #We wrap the trade entries and exits in lists to match the expected input format of the simulate_strategy_trade_pnl function.
+    # 3) if we never even crossed the chosen entry band → negative reward
+    if not trade_entries or not trade_exits:
+        return -1.0, 0.0, None, None
 
-    trade_entry = trade_entries[0] #The first trade entry
+    # 4) focus on the *first* trade
+    entry_meta = trade_entries[0]
+    exit_meta  = trade_exits[0]
 
-    #print("TRADE ENTRIES: ",[trade_entries[0]], "TRADE EXITS: ",[trade_exits[0]], "TRADE PROFITS: ",trade_profits)
+    # 5) compute the P&L of that one trade (for logging only)
+    #    simulate_strategy_trade_pnl expects lists of entries/exits:
+    pnl_list, _, _, _, _, _ = simulate_strategy_trade_pnl(
+        [entry_meta], [exit_meta],
+        initial_capital, beta_series_trading_window, tx_cost
+    )
+    profit = pnl_list[0]
 
-    #Only focus on the first trade for now!
-    first_trade = trade_exits[0]['exit_type']
+    # 6) shape the reward purely on the exit_type
+    etype = exit_meta['exit_type']
+    if etype == 'win':
+        reward = +1.0
+    elif etype == 'loss':
+        reward = -1.0
+    elif etype == 'forced_exit':
+        reward = 0 # Forced exits are only possible in the last cycle of the training set, so we can ignore them for now.
 
-    if first_trade == 'win':
-        return 1000.0,trade_profits,trade_entry
-    elif first_trade == 'loss':
-        return -1000.0,trade_profits,trade_entry
-    elif first_trade == 'forced_exit':
-        return -500.0,trade_profits,trade_entry
-    
-
-
-    # if (len(trade_exits) != 0): #If there are any trades
-
-    #     for trade_exit in trade_exits:
-
-    #         if(trade_exit['exit_type'] == 'win'):
-    #             reward = 1000
-    #         elif(trade_exit['exit_type'] == 'loss'):
-    #             reward = -1000
-    #         elif(trade_exit['exit_type'] == 'forced_exit'):
-    #             reward = -500
-    # else:
-    #     reward = 0
-
-
-
-    # a catch-all for any unexpected exit_type
-    return 0.0,trade_profits,trade_entry
+    return reward, profit, entry_meta, exit_meta
 
 
 
@@ -142,8 +140,7 @@ class PairsTradingEnv:
                  initial_capital: float, # Initial capital for the strategy
                  tx_cost: float, # Transaction cost (not used in this version)
                  entry_stop_pairs: list, # List of (entry, stop-loss) pairs
-                 formation_window: int, # Length of formation window (F)
-                 trading_window: int): # Length of trading window (T)
+                 ): # Length of trading window (T)
         
         self.spreads = spreads
         self.prices = prices
@@ -151,52 +148,134 @@ class PairsTradingEnv:
         self.initial_capital = initial_capital # Initial capital for the strategy
         self.tx_cost = tx_cost
         self.entry_stop_pairs = entry_stop_pairs
-        self.F = formation_window
-        self.T = trading_window
+        
+        #Create cycles from the z-score spread time series. The min_threshold is the minimum z-score value to consider a cycle, and tol is the tolerance for near-zero values.
+        self.create_cycles(min_threshold = 1, tol = 0.10) 
 
-        # number of non-overlapping episodes we can run
-        self.max_episodes = (len(spreads) - self.F) // self.T #For example, if F=30 and T=15, then the maximum number of episodes is (total_days - 30) // 15.
-        self.current_episode = 0 #Tracks the current episode index.
+        # now we have self.spread_cycles, self.price_cycles, self.beta_cycles
+        # build a list of feature‐vectors summarizing each cycle:
+
+        self.state_features = [
+            np.array([
+            cycle.mean(), cycle.std(), len(cycle)
+            ], dtype=np.float32)
+            for cycle in self.spread_cycles
+        ]
+
+        self.cycle_idx = 0
+
+
+    def create_cycles(self, min_threshold: float, tol: float = 0.10):
+        """
+        Split the series into (divergence → revert) cycles at or above min_threshold.
+        Each cycle begins when |z| first exceeds min_threshold and ends when z crosses 0.
+        """
+        self.spread_cycles = []
+        self.price_cycles  = []
+        self.beta_cycles   = []
+
+        z = self.spreads  # pd.Series of z-scores
+        p = self.prices   # pd.DataFrame aligned with z
+        b = self.beta_series  # pd.Series aligned with z
+
+        # 1) Trim initial “off‐zero” drift:
+        first_near_zero = (z.abs() <= tol).to_numpy().argmax()
+
+        mask = (z.abs() <= tol).to_numpy()
+        if not mask.any(): 
+            first_near_zero = 0
+        else:
+            first_near_zero = mask.argmax()
+
+
+        z = z.iloc[first_near_zero:]
+        p = p.iloc[first_near_zero:]
+        b = b.iloc[first_near_zero:]
+
+        in_cycle = False
+        cycle_start = None
+        entry_sign = 0
+
+        for i, val in enumerate(z):
+            if not in_cycle:
+                # wait for a threshold cross
+                if val >= min_threshold:
+                    in_cycle = True
+                    entry_sign = +1
+                    cycle_start = i
+                elif val <= -min_threshold:
+                    in_cycle = True
+                    entry_sign = -1
+                    cycle_start = i
+            else:
+                # we’re in a cycle—look for crossing back through zero
+                if (entry_sign == 1 and val <= 0) or (entry_sign == -1 and val >= 0):
+                    cycle_end = i
+                    # SLICE out the cycle *including* start and end bar
+                    span = slice(cycle_start, cycle_end + 1)
+
+                    self.spread_cycles.append(z.iloc[span])
+                    self.price_cycles .append(p.iloc[span])
+                    self.beta_cycles  .append(b.iloc[span])
+
+                    in_cycle = False
+                    cycle_start = None
+                    entry_sign = 0
+        # done
+
+        # assign back so env can use them
+        self.spreads = z
+        self.prices  = p
+        self.beta_series = b
+
 
     def reset(self):
-        """
-        Reset to the start of the next episode.
-        Returns the initial state (F-length spread history).
-        """
-        if self.current_episode >= self.max_episodes:
-            self.current_episode = 0 #If all episodes have been exhausted, the current_episode counter is reset to 0.
-        start = self.current_episode * self.T #Index of the start of the current episode.
-        state = self.spreads.iloc[start : start + self.F].to_numpy().astype(np.float32) #Slide the window forward by T days to get the formation window. The trader wants to trade immediately afte their previous trading window ended, so this allows for that (see MS whiteboard)
-        return state
+        """Start at the first cycle’s summary‐stats."""
+        self.cycle_idx = 0
+        return self.state_features[0]
 
     def step(self, action: int):
+
         """
-        Execute ONE episode using the chosen action.
-        Returns: next_state, reward, done, info
+        One RL step ≡ one real divergence→reversion (or stop) cycle.
+        State = summary‐features of cycle[k]
+        Trading window = cycle[k+1]
         """
+        # 1) Which cycle we’re trading?
+        k = self.cycle_idx
 
-        start = self.current_episode * self.T # start of the current episode
-        # full window includes formation + trading
+        # 2) Our look‐back was cycle[k]: so the state was state_features[k]
+        #    Now we simulate on the *next* cycle:
+        spread_cycle = self.spread_cycles[k+1]
+        price_cycle  = self.price_cycles[k+1]
+        beta_cycle   = self.beta_cycles[k+1]
 
-        spread_trading_window = self.spreads.iloc[start + self.F : start + self.F + self.T] #The spread trading window
-        prices_trading_window = self.prices.iloc[start + self.F : start + self.F + self.T] #The price trading window
-        beta_series_trading_window = self.beta_series.iloc[start + self.F : start + self.F + self.T] #The beta series trading window
+        entry_thr, stop_thr = self.entry_stop_pairs[action]
 
-        entry, stop = self.entry_stop_pairs[action] #The selected entry and stop-loss thresholds based on the action taken.
-        
-        # simulate_strategy should return profit over the T-day trading window
-        reward,profits,trade_entry = simulate_strategy(spread_trading_window,prices_trading_window,beta_series_trading_window,self.initial_capital,self.tx_cost, entry, stop)
+        # 3) Run existing backtest over exactly THIS cycle:
+        reward, profit, entry_meta, exit_meta = simulate_strategy(
+            spread_cycle, price_cycle, beta_cycle,
+            self.initial_capital, self.tx_cost,
+            entry_thr, stop_thr
+        )
 
-        # build next state by shifting formation window forward by T days
-        next_start = (self.current_episode + 1) * self.T
-        next_state = self.spreads[next_start:next_start + self.F].to_numpy().astype(np.float32) # The next state is the spread window for the next episode.
+        # 4) Advance to the next cycle’s features
+        self.cycle_idx += 1
+        done = (self.cycle_idx >= len(self.state_features) - 1)
 
-        # done flag when we've exhausted all episodes
-        done = (self.current_episode + 1 >= self.max_episodes) #The episode is done when the current episode index exceeds the maximum number of episodes (done gets set to True).
-        self.current_episode += 1 # Increment the current episode index.
+        if not done:
+            next_state = self.state_features[self.cycle_idx]
+        else:
+            next_state = np.zeros_like(self.state_features[0])
 
-        return next_state, float(reward),profits,trade_entry, done, {} #An empty dictionary is returned as the info parameter, which can be used to pass additional information if needed.
+        info = {
+        "entry_meta": entry_meta,
+        "exit_meta": exit_meta,
+        "profit": profit
+        }
 
+        return next_state, float(reward), done, info
+    
 
 def train_dqn(spreads_train: pd.Series,
               prices_train: pd.DataFrame,
@@ -207,8 +286,6 @@ def train_dqn(spreads_train: pd.Series,
               initial_capital: float,
               tx_cost: float,
               entry_stop_pairs: list,
-              F: int,
-              T: int,
               num_epochs: int = 10,
               batch_size: int = 32,
               gamma: float = 0.99,
@@ -228,12 +305,28 @@ def train_dqn(spreads_train: pd.Series,
 
     # Setup device, envoronment, and action space
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu") #Use GPU if available, otherwise use CPU.
-    env = PairsTradingEnv(spreads_train,prices_train,beta_series_train,initial_capital,tx_cost, entry_stop_pairs, F, T) #Initialize the environment with the provided spreads, prices, entry-stop pairs, formation window, and trading window.
+
+    env = PairsTradingEnv(
+        spreads_train, prices_train, beta_series_train,
+        initial_capital, tx_cost,
+        entry_stop_pairs)
+    
+    # print("Number of cycles:", len(env.spread_cycles))
+
+    # print("First cycle:")
+    # print("------------")
+    # print(env.spread_cycles[0])
+
+    # print("Last cycle:")
+    # print("------------")
+    # print(env.spread_cycles[-1])
+
     n_actions = len(entry_stop_pairs) # Number of discrete actions (entry-stop pairs).
 
+    input_dim = len(env.state_features[0]) # The input dimension is the length of the state feature vector, which is the same for all cycles.
     # Create online and target networks
-    online_net = DQN(F, n_actions, hidden_dim).to(device) #The online network is the one that will be trained. The to device method moves the model to the specified device (GPU or CPU).
-    target_net = DQN(F, n_actions, hidden_dim).to(device) #The target network is used to stabilize training. It is a copy of the online network.
+    online_net = DQN(input_dim, n_actions, hidden_dim).to(device) #The online network is the one that will be trained. The to device method moves the model to the specified device (GPU or CPU).
+    target_net = DQN(input_dim, n_actions, hidden_dim).to(device) #The target network is used to stabilize training. It is a copy of the online network.
     target_net.load_state_dict(online_net.state_dict()) # Initialize target network with the same weights as the online network.
 
     # Create optimzer and replay buffer
@@ -245,11 +338,11 @@ def train_dqn(spreads_train: pd.Series,
     reward_history = [] # collect average reward per epoch
 
 
-    # Initialize the best validation reward, weights and patience
-    best_val_reward = -float('inf')
-    best_weights    = copy.deepcopy(online_net.state_dict())
-    patience        = 0
-    patience_limit  = 20
+    # # Initialize the best validation reward, weights and patience
+    # best_val_reward = -float('inf')
+    # best_weights    = copy.deepcopy(online_net.state_dict())
+    # patience        = 0
+    # patience_limit  = 20
 
     validation_reward_history = [] # collect validation reward per epoch
 
@@ -275,10 +368,13 @@ def train_dqn(spreads_train: pd.Series,
                     q_vals = online_net(s_v)
                     action = q_vals.argmax(dim=1).item()  
 
-            next_state, reward,profits,trade_entry, done, _ = env.step(action)
+            next_state, reward, done, info = env.step(action) 
+
             replay_buffer.push(state, action, reward, next_state, done)
             epoch_rewards.append(reward)
             state = next_state
+
+            # ----—-------- DQN update ----------——  
 
             # Perform learning step if enough data
             if len(replay_buffer) >= batch_size:
@@ -300,6 +396,7 @@ def train_dqn(spreads_train: pd.Series,
                     next_q_values = target_net(next_states_v)
                     max_next_q_values = next_q_values.max(1)[0] #computes the maximum Q-value across all possible actions for each next state. This represents the best possible future reward.
                     expected_values = rewards_v + gamma * max_next_q_values * (~dones_v) #~dones_v: Ensures that no future rewards are added if the episode has ended (done = True)
+
 
                 # compute loss and update network
                 loss = nn.MSELoss()(state_action_values, expected_values) # Mean Squared Error loss between the predicted Q-values and the expected Q-values.
@@ -346,25 +443,11 @@ def train_dqn(spreads_train: pd.Series,
             online_net,
             spreads_val, prices_val, beta_series_val,
             initial_capital, tx_cost,
-            entry_stop_pairs, F, T
+            entry_stop_pairs
         )
 
         avg_val_reward = val_metrics['avg_reward']
         validation_reward_history.append(avg_val_reward) #Append the average reward for this epoch to the validation reward history for later analysis.
-
-        # print(f"Epoch {epoch:03d} | ValReward: {avg_val_reward:.2f}  "
-        #     f"(best={best_val_reward:.2f}, patience={patience})")
-
-        # if avg_val_reward > best_val_reward:
-        #     best_val_reward = avg_val_reward
-        #     best_weights    = copy.deepcopy(online_net.state_dict())
-        #     patience        = 0
-        # else:
-        #     patience += 1
-        #     if patience >= patience_limit:
-        #         print("⏹ Early stopping triggered")
-        #         break
-
     
     # # Reload best‐epoch weights and test
     # online_net.load_state_dict(best_weights)
@@ -375,86 +458,89 @@ def train_dqn(spreads_train: pd.Series,
 
 
 def evaluate_dqn(
-    online_net,           # your trained DQN
-    spreads: pd.Series,   # test‐set z‐scores
-    prices: pd.DataFrame, # test‐set prices
-    beta_series: pd.Series, # test‐set betas
-    initial_capital: float, # Initial capital for the strategy
-    tx_cost: float, # Transaction cost (not used in this version)
+    online_net,            # your trained DQN
+    spreads: pd.Series,    # test‐set z‐scores
+    prices: pd.DataFrame,  # test‐set prices
+    beta_series: pd.Series,# test‐set betas
+    initial_capital: float,
+    tx_cost: float,
     entry_stop_pairs: list,
-    F: int, T: int,
 ):
     """
-    Runs the greedy policy (epsilon=0) over all test episodes,
-    returns reward list and simple classification metrics.
+    Runs the greedy (ε=0) policy on the test‐set cycles,
+    returns (test_rewards, trade_profits, actions, episodes, metrics).
     """
     device = next(online_net.parameters()).device
-    #env = PairsTradingEnv(spreads, prices, entry_stop_pairs, F, T)
-    env = PairsTradingEnv(spreads, prices,beta_series,initial_capital,tx_cost, entry_stop_pairs, F, T) #Initialize the environment with the provided spreads, prices, entry-stop pairs, formation window, and trading window.
+
+    # 1) Initialize env with no fixed T—just F and your cycles logic
+    env = PairsTradingEnv(
+        spreads, prices, beta_series,
+        initial_capital, tx_cost,
+        entry_stop_pairs
+    )
+
+    test_rewards   = []
+    trade_profits  = []
+    actions        = []
+    episodes       = []  # metadata per cycle
+    win = loss = forced = none = 0
 
 
-    test_rewards = []
-    actions = []
-    trade_profits = []
-    win, loss, forced, none = 0, 0, 0, 0
-    episodes = [] # List to store episode metadata
+    # 2) Start at cycle #0
+    state = env.reset()
+    done  = False
 
-    state = env.reset() # Reset the environment to get the initial state.
-    done = False # Initialize the done flag to False.
-    # Force greedy policy
+    # 3) Step through *each* cycle until we exhaust them
     while not done:
-        
-        # Get the current episode index and calculate the start and end indices for the trading window (To be used for plotting)
-        ep_idx     = env.current_episode #Starts at 0
-        start_pos  = ep_idx * T 
-        form_end   = start_pos + F
-        trade_start = spreads.index[form_end]
-        trade_end   = spreads.index[form_end + T - 1] #We subtract 1 because the python range function is exclusive of the end index (remember if you specify 5 at the end, it will get the first 5 elements, but the last element will  actually be at index 4, not 5).
+        k = env.cycle_idx  # which cycle am I about to trade?
 
         # Greedy action
         with torch.no_grad():
-            s_v = torch.from_numpy(state).unsqueeze(0).to(device)
-            action = online_net(s_v).argmax(dim=1).item() # Select the action with the highest Q-value from the online network.
-        entry, stop = entry_stop_pairs[action] #Remeber action is an index into the entry_stop_pairs list, which contains tuples of (entry, stop-loss) pairs.
+            sv     = torch.from_numpy(state).unsqueeze(0).to(device)
+            action = online_net(sv).argmax(dim=1).item()
+        entry_thr, stop_thr = entry_stop_pairs[action]
 
-      
+        # 4) Take exactly one cycle → get back reward, profit, entry & exit metadata
+        next_state, reward, done, info = env.step(action)
 
-        next_state,reward,profits,trade_entry, done, _ = env.step(action)
+        entry_meta = info['entry_meta']
+        exit_meta  = info['exit_meta']
+        profit     = info['profit']
 
-        # Record episode metadata
+        exit_type = exit_meta['exit_type'] if exit_meta is not None else 'none'
+
+        # 5) Record what just happened
         episodes.append({
-            'trade_start': trade_start,
-            'trade_end':   trade_end,
-            'trade_entry_metadata': trade_entry,
-            'entry':       entry,
-            'stop':        stop
+            'cycle_idx':        k,
+            'entry_meta':       entry_meta,
+            'exit_meta':        exit_meta,
+            'entry_threshold':  entry_thr,
+            'stop_threshold':   stop_thr
         })
-
-        #Collect results
-        actions.append((entry,stop)) # Append the action taken to the actions list.
-        trade_profits.append(profits) # Append the profits from the trade to the trade profits list.
+        actions.append((entry_thr, stop_thr))
         test_rewards.append(reward)
-        if   reward == 1000.0:  win    += 1
-        elif reward == -1000.0: loss   += 1
-        elif reward == -500.0:  forced += 1
-        else:                   none   += 1
+        trade_profits.append(profit)
 
-        # Update the state to the next state.
-        state = next_state 
+        if   exit_type == 'win':          win    += 1
+        elif exit_type == 'loss':    loss   += 1
+        elif exit_type == 'forced_exit':  forced += 1
+        elif exit_type == 'none':         none   += 1
 
+        # 6) advance
+        state = next_state
 
-    #Compute summary metrics
+    # 7) Compute simple metrics
     total = len(test_rewards)
+
     metrics = {
         "avg_reward":    np.mean(test_rewards),
         "win_rate":      win/total,
         "loss_rate":     loss/total,
-        "forced_rate":   forced/total,
+        "forced_rate":   forced/total,  # if you ever use that code path
         "no_trade_rate": none/total,
     }
 
-    return test_rewards,trade_profits,actions,episodes,metrics
-
+    return test_rewards, trade_profits, actions, episodes, metrics
 
 
 def plot_episodes(prices: pd.DataFrame,

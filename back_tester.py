@@ -47,6 +47,10 @@ def compute_spread_series(S1, S2, window_size=None):
         S1_window = S1.iloc[t - window_size: t]  # S1 data for the window
         S2_window = S2.iloc[t - window_size: t]  # S2 data for the window
         
+        # #Take the log of the prices
+        # S1_window = np.log(S1_window)
+        # S2_window = np.log(S2_window)
+
         # Perform OLS regression to estimate the hedge ratio beta for the window
         X = sm.add_constant(S2_window)
         model = sm.OLS(S1_window, X).fit()
@@ -558,9 +562,9 @@ def backtest_pair_rolling_order_book(
     wins  = sum(1 for e in trade_exits if e['exit_type'] == 'win')
     losses= sum(1 for e in trade_exits if e['exit_type'] == 'loss')
 
-    print(f"Total trades closed: {total_closed} (Wins={wins}, Losses={losses})")
-    if total_closed > 0:
-        print(f"Win rate: {wins / total_closed:.2f}")
+    # print(f"Total trades closed: {total_closed} (Wins={wins}, Losses={losses})")
+    # if total_closed > 0:
+    #     print(f"Win rate: {wins / total_closed:.2f}")
 
     return positions, trade_entries, trade_exits
 
@@ -1547,7 +1551,7 @@ def simulate_strategy_trade_pnl(trade_entries, trade_exits, initial_capital, bet
     # print(f"Total return %: {(cumulative_profit[-1] / initial_capital) * 100:.2f}%")
     # print(f"Long spread losses: {long_spread_loss_count}, Short spread losses: {short_spread_loss_count}")
     # print(f"Number of Dual-leg profitable trades: {number_of_dual_leg_profits}")
-    # print(f"Dual leg trade profit rate: {number_of_dual_leg_profits / len(trade_profits) * 100:.2f}%")
+    #print(f"Dual leg trade profit rate: {number_of_dual_leg_profits / len(trade_profits) * 100:.2f}%")
 
 
 
