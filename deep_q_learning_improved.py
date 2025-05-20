@@ -93,6 +93,8 @@ class DQN(nn.Module):
             #nn.Dropout(p=dropout_p),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
             #nn.Dropout(p=dropout_p),
             nn.Linear(hidden_dim, output_dim)
         )
@@ -316,9 +318,9 @@ def train_dqn(spreads_train: pd.Series,
         entry_stop_pairs)
     
     print("Number of cycles:", len(env.spread_cycles))
-    print("CYCLES:")
-    print("-------")
-    print(env.spread_cycles)
+    # print("CYCLES:")
+    # print("-------")
+    #print(env.spread_cycles)
     
     # print("Number of cycles:", len(env.spread_cycles))
 
@@ -390,7 +392,6 @@ def train_dqn(spreads_train: pd.Series,
             profit     = info['profit']
 
             exit_type = exit_meta['exit_type'] if exit_meta is not None else 'none'
-
 
             if   exit_type == 'win':          win_count    += 1
             elif exit_type == 'loss':    loss_count   += 1
