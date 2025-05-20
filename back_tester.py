@@ -182,68 +182,67 @@ def backtest_pair_rolling(
             positions.append(position)
             continue
 
+
+        #Before CASE‐1 / CASE‐2 logic, clear the lockout when you recross zero. This will allow you to re-enter on the same bar that cleared the lockout, which is important in case the spread crosses the mean and then enters the entry thresholds straight after
+        if stop_out:
+            if (stopped_out_position == +1 and current_z >= 0) or \
+            (stopped_out_position == -1 and current_z <= 0):
+                stop_out = False
+                stopped_out_position = 0
+
+        
         # CASE 1: No open position
         if position == 0:
+            
+            # (a) if still locked out, flat & go next bar
             if stop_out:
-                
-                #If you were in a long position, you can re-enter if the z-score is equal to or crosses the zero line from below
-                if stopped_out_position == 1:
+                positions.append(0)
+                continue
 
-                    if current_z >= exit_threshold:
-                        stop_out = False
-                        stopped_out_position = 0    
-                    positions.append(0)
+            # (b) if outside SL band, lock-out & flat & go next bar
+            if abs(current_z) >= stop_loss_threshold: # We can take absolute to account for either side
+                # we’ve just “skipped” entry because we’re already beyond our SL
+                # start the lockout and remember which side
+                stop_out = True
+                stopped_out_position = -1 if current_z > 0 else +1
+                positions.append(0)
+                continue
+            
+            # (c) otherwise, try to enter on this bar
+            # If zscore >= +entry_threshold => short spread
+            if current_z >= entry_threshold:
+                position      = -1
+                entry_price_S1 = current_S1
+                entry_price_S2 = current_S2
+                entry_z        = current_z
+                trade_entries.append({
+                    'time': current_index,
+                    'S1':   entry_price_S1,
+                    'S2':   entry_price_S2,
+                    'z':    entry_z,
+                    'position': position
+                })
+                positions.append(position)
 
-                #If you were in a short position, you can re-enter if the z-score is equal to or crosses the zero line from above
-                elif stopped_out_position == -1:
-                    if current_z <= -exit_threshold:
-                        stop_out = False
-                        stopped_out_position = 0
-                    positions.append(0)
-
-                # # If you want to prevent re-entry until z is near zero:
-                # if abs(current_z) <= 0.1:
-                #     stop_out = False
-                # # remain flat
-                # positions.append(0)
-
+            # If zscore <= -entry_threshold => long spread
+            elif current_z <= -entry_threshold:
+                position       = 1
+                entry_price_S1 = current_S1
+                entry_price_S2 = current_S2
+                entry_z        = current_z
+                trade_entries.append({
+                    'time': current_index,
+                    'S1':   entry_price_S1,
+                    'S2':   entry_price_S2,
+                    'z':    entry_z,
+                    'position': position
+                })
+                positions.append(position)
             else:
+                # no entry
+                positions.append(0)
 
-                
-
-                # If zscore >= +entry_threshold => short spread
-                if current_z >= entry_threshold:
-                    position      = -1
-                    entry_price_S1 = current_S1
-                    entry_price_S2 = current_S2
-                    entry_z        = current_z
-                    trade_entries.append({
-                        'time': current_index,
-                        'S1':   entry_price_S1,
-                        'S2':   entry_price_S2,
-                        'z':    entry_z,
-                        'position': position
-                    })
-                    positions.append(position)
-
-                # If zscore <= -entry_threshold => long spread
-                elif current_z <= -entry_threshold:
-                    position       = 1
-                    entry_price_S1 = current_S1
-                    entry_price_S2 = current_S2
-                    entry_z        = current_z
-                    trade_entries.append({
-                        'time': current_index,
-                        'S1':   entry_price_S1,
-                        'S2':   entry_price_S2,
-                        'z':    entry_z,
-                        'position': position
-                    })
-                    positions.append(position)
-                else:
-                    # no entry
-                    positions.append(0)
-
+               
         # CASE 2: We already have a position
         else:          
             if position == 1:  # LONG SPREAD
