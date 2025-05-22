@@ -14,6 +14,21 @@ from back_tester import *
 import matplotlib.pyplot as plt
 import copy
 
+# ─── FIX RANDOM SEEDS ───────────────────────────────────────────────────────────
+SEED = 42
+random.seed(SEED) #Sets the seed for Python’s built-in random module.
+np.random.seed(SEED) #Sets the seed for NumPy’s random number generator.
+torch.manual_seed(SEED) #Sets the seed for PyTorch CPU operations.
+# if you’re using CUDA:
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(SEED)
+    torch.cuda.manual_seed_all(SEED)
+    # make CuDNN deterministic (may slow you down a bit)
+    torch.backends.cudnn.deterministic   = True
+    torch.backends.cudnn.benchmark       = False
+# ────────────────────────────────────────────────────────────────────────────────
+
+
 
 def simulate_strategy(
     spread_trading_window: pd.Series,
@@ -90,10 +105,10 @@ class DQN(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
-            #nn.Dropout(p=dropout_p),
+            #nn.Dropout(p=drsopout_p),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
+            # nn.ReLU(),
+            # nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             #nn.Dropout(p=dropout_p),
             nn.Linear(hidden_dim, output_dim)
@@ -144,6 +159,7 @@ class PairsTradingEnv:
                  initial_capital: float, # Initial capital for the strategy
                  tx_cost: float, # Transaction cost (not used in this version)
                  entry_stop_pairs: list, # List of (entry, stop-loss) pairs
+                 eval_mode: bool, # Whether to run in evaluation mode
                  ): # Length of trading window (T)
         
         self.spreads = spreads
@@ -152,6 +168,7 @@ class PairsTradingEnv:
         self.initial_capital = initial_capital # Initial capital for the strategy
         self.tx_cost = tx_cost
         self.entry_stop_pairs = entry_stop_pairs
+        self.eval_mode = eval_mode # Whether to run in evaluation mode
         
         #Create cycles from the z-score spread time series. The min_threshold is the minimum z-score value to consider a cycle, and tol is the tolerance for near-zero values.
         self.create_cycles(min_threshold = 1, tol = 0.10) # now we have self.spread_cycles, self.price_cycles, self.beta_cycles
@@ -162,27 +179,52 @@ class PairsTradingEnv:
 
         # build state_features with one-hot prev action
         self.state_features = []
+
+        #Compute mean and std of cycle lengths to normalize the cycle lengths in the state features
+        cycle_lengths = [len(cycle) for cycle in self.spread_cycles]
+        mean_cycle_length = np.mean(cycle_lengths)  
+        std_cycle_length  = np.std(cycle_lengths)
+
+
         for k, cycle in enumerate(self.spread_cycles):
+
+            # prev_entry, prev_stop = (0.0, 0.0)
+            # if k > 0 and self.best_pairs[k-1] is not None:
+            #     prev_entry, prev_stop = self.best_pairs[k-1]
+            if self.best_pairs[k] is not None:
+                best_entry, best_stop = self.best_pairs[k]
+            else:
+                best_entry, best_stop = entry_stop_pairs[-1] #For now, just use the last entry-stop pair if no best pair is found
+                # print("No best pair found for cycle:")
+                # print(cycle)
+                # raise ValueError("No best pair found for cycle {}".format(k))
+            
+            normalized_cycle_length = (len(cycle) - mean_cycle_length) / std_cycle_length
 
             # basic stats
             stats = np.array([
             cycle.mean(),
             cycle.std(),
-            len(cycle),
+            #len(cycle),
+            normalized_cycle_length,
             cycle.min(),
             cycle.max(),
-            scipy.stats.skew(cycle)
+            scipy.stats.skew(cycle),
+            # best_entry,
+            # best_stop,
         ], dtype=np.float32)
+            
+            self.state_features.append(stats)
 
-            # 2) make one-hot of previous best
-            onehot = np.zeros(N, dtype=np.float32)
-            if k > 0 and self.best_pairs[k-1] is not None:
-                prev_idx = self.entry_stop_pairs.index(self.best_pairs[k-1])
-                onehot[prev_idx] = 1.0
+            # # 2) make one-hot of previous best
+            # onehot = np.zeros(N, dtype=np.float32)
+            # if k > 0 and self.best_pairs[k-1] is not None:
+            #     prev_idx = self.entry_stop_pairs.index(self.best_pairs[k-1])
+            #     onehot[prev_idx] = 1.0
 
             # 3) concatenate into a single vector of length 6 + N
             #self.state_features.append(np.concatenate([stats, onehot], axis=0))   
-            self.state_features.append(onehot) 
+            #self.state_features.append(onehot) 
 
                 
             
@@ -246,6 +288,22 @@ class PairsTradingEnv:
                     cycle_start = None
                     entry_sign = 0
         # done
+
+        #Remove cycles that have a max z-score greater than 5 or min zscore less than -5 (to remove outlier cycles and reduce the action space for training)
+        #ONLY DO THIS FOR TRAINING, NOT FOR EVALUATION
+
+        if not self.eval_mode:
+            #Get indexes of cycles to remove
+            remove_indexes = []
+            for i, cycle in enumerate(self.spread_cycles):
+                if cycle.max() > 4 or cycle.min() < -4:
+                    remove_indexes.append(i)   
+
+            #Remove cycles from all three lists
+            for i in sorted(remove_indexes, reverse=True):
+                del self.spread_cycles[i]
+                del self.price_cycles[i]
+                del self.beta_cycles[i]     
 
         # assign back so env can use them
         self.spreads = z
@@ -365,7 +423,16 @@ def train_dqn(spreads_train: pd.Series,
     env = PairsTradingEnv(
         spreads_train, prices_train, beta_series_train,
         initial_capital, tx_cost,
-        entry_stop_pairs)
+        entry_stop_pairs,
+        eval_mode=False) #Set eval_mode to False for training
+    
+    #Initialize the validation environment with the validation data
+    validation_env = PairsTradingEnv(
+        spreads_val, prices_val, beta_series_val,
+        initial_capital, tx_cost,
+        entry_stop_pairs,
+        eval_mode=True) #Set eval_mode to True for validation
+    
     
     #print("Number of cycles:", len(env.spread_cycles))
     # print("CYCLES:")
@@ -416,6 +483,10 @@ def train_dqn(spreads_train: pd.Series,
     for epoch in range(1, num_epochs + 1):
 
         state = env.reset() # Reset the environment to get the initial state.
+
+        #Reset the environment for the validation set
+        #validation_env.reset()
+
         epoch_rewards = []
         epoch_batch_losses = []  # collect minibatch losses this epoch
         win_count = loss_count = forced_count = none_count = 0
@@ -457,6 +528,7 @@ def train_dqn(spreads_train: pd.Series,
 
             # Perform learning step if enough data
             if len(replay_buffer) >= batch_size:
+
                 states, actions, rewards, next_states, dones = replay_buffer.sample(batch_size) # Sample a random batch of experiences from the replay buffer.
             
                 #Convert to PyTorch tensors and move to device
@@ -530,9 +602,8 @@ def train_dqn(spreads_train: pd.Series,
         #Put the online network in evaluation mode
         # ——————————————— Validation pass ————————————————————
         _,_,_,_,val_metrics = evaluate_dqn(
+            validation_env,
             online_net,
-            spreads_val, prices_val, beta_series_val,
-            initial_capital, tx_cost,
             entry_stop_pairs
         )
 
@@ -555,12 +626,8 @@ def train_dqn(spreads_train: pd.Series,
 
 
 def evaluate_dqn(
+    env,
     online_net,            # your trained DQN
-    spreads: pd.Series,    # test‐set z‐scores
-    prices: pd.DataFrame,  # test‐set prices
-    beta_series: pd.Series,# test‐set betas
-    initial_capital: float,
-    tx_cost: float,
     entry_stop_pairs: list,
 ):
     """
@@ -569,12 +636,6 @@ def evaluate_dqn(
     """
     device = next(online_net.parameters()).device
 
-    # 1) Initialize env with no fixed T—just F and your cycles logic
-    env = PairsTradingEnv(
-        spreads, prices, beta_series,
-        initial_capital, tx_cost,
-        entry_stop_pairs
-    )
 
     test_rewards   = []
     trade_profits  = []
