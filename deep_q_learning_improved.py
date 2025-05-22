@@ -154,20 +154,38 @@ class PairsTradingEnv:
         self.entry_stop_pairs = entry_stop_pairs
         
         #Create cycles from the z-score spread time series. The min_threshold is the minimum z-score value to consider a cycle, and tol is the tolerance for near-zero values.
-        self.create_cycles(min_threshold = 1, tol = 0.10) 
+        self.create_cycles(min_threshold = 1, tol = 0.10) # now we have self.spread_cycles, self.price_cycles, self.beta_cycles
 
-        # now we have self.spread_cycles, self.price_cycles, self.beta_cycles
-        # build a list of feature‐vectors summarizing each cycle:
+        # … after create_cycles() and best_pairs = …
+        self.best_pairs = self.find_best_thresholds()
+        N = len(self.entry_stop_pairs)
 
-        self.state_features = [
-            np.array([
-            cycle.mean(), cycle.std(), len(cycle),
-            cycle.min(), cycle.max(),
-            scipy.stats.skew(cycle),
-            ], dtype=np.float32)
-            for cycle in self.spread_cycles
-        ]
+        # build state_features with one-hot prev action
+        self.state_features = []
+        for k, cycle in enumerate(self.spread_cycles):
 
+            # basic stats
+            stats = np.array([
+            cycle.mean(),
+            cycle.std(),
+            len(cycle),
+            cycle.min(),
+            cycle.max(),
+            scipy.stats.skew(cycle)
+        ], dtype=np.float32)
+
+            # 2) make one-hot of previous best
+            onehot = np.zeros(N, dtype=np.float32)
+            if k > 0 and self.best_pairs[k-1] is not None:
+                prev_idx = self.entry_stop_pairs.index(self.best_pairs[k-1])
+                onehot[prev_idx] = 1.0
+
+            # 3) concatenate into a single vector of length 6 + N
+            #self.state_features.append(np.concatenate([stats, onehot], axis=0))   
+            self.state_features.append(onehot) 
+
+                
+            
         self.cycle_idx = 0
 
 
@@ -233,6 +251,38 @@ class PairsTradingEnv:
         self.spreads = z
         self.prices  = p
         self.beta_series = b
+
+
+    def find_best_thresholds(self):
+
+        initial_capital = self.initial_capital
+        tx_cost = self.tx_cost
+
+        spread_cycles = self.spread_cycles
+        price_cycles = self.price_cycles
+        beta_cycles = self.beta_cycles
+
+        #print(len(spread_cycles))
+
+        best_pairs = []
+        for z, p, b in zip(spread_cycles, price_cycles, beta_cycles):
+            #best_profit = -float('inf')
+            best_pair   = None
+            for (e_thr, s_thr) in self.entry_stop_pairs:
+                reward, profit, entry_meta, exit_meta = simulate_strategy(
+                    z, p, b,
+                    initial_capital, tx_cost,
+                    entry_thr=e_thr, stop_thr=s_thr
+                )
+                # only consider *wins* (reward>0)
+                if reward > 0:
+                    #best_profit = profit
+                    best_pair   = (e_thr, s_thr)
+
+            best_pairs.append(best_pair)
+
+        return best_pairs
+
 
 
     def reset(self):
@@ -317,7 +367,7 @@ def train_dqn(spreads_train: pd.Series,
         initial_capital, tx_cost,
         entry_stop_pairs)
     
-    print("Number of cycles:", len(env.spread_cycles))
+    #print("Number of cycles:", len(env.spread_cycles))
     # print("CYCLES:")
     # print("-------")
     #print(env.spread_cycles)
@@ -428,7 +478,7 @@ def train_dqn(spreads_train: pd.Series,
 
 
                 # compute loss and update network
-                td_loss = nn.MSELoss()(state_action_values, expected_values) # Mean Squared Error loss between the predicted Q-values and the expected Q-values.
+                td_loss = nn.HuberLoss()(state_action_values, expected_values) # Mean Squared Error loss between the predicted Q-values and the expected Q-values.
                 epoch_batch_losses.append(td_loss.item())
                 optimizer.zero_grad()  # Clears the gradients of the online network to ensure that gradients from the previous step do not accumulate
                 td_loss.backward() #Computes the gradients of the loss with respect to the online network's parameters using backpropagation
