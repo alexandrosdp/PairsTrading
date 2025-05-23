@@ -14,20 +14,6 @@ from back_tester import *
 import matplotlib.pyplot as plt
 import copy
 
-# ─── FIX RANDOM SEEDS ───────────────────────────────────────────────────────────
-SEED = 42
-random.seed(SEED) #Sets the seed for Python’s built-in random module.
-np.random.seed(SEED) #Sets the seed for NumPy’s random number generator.
-torch.manual_seed(SEED) #Sets the seed for PyTorch CPU operations.
-# if you’re using CUDA:
-if torch.cuda.is_available():
-    torch.cuda.manual_seed(SEED)
-    torch.cuda.manual_seed_all(SEED)
-    # make CuDNN deterministic (may slow you down a bit)
-    torch.backends.cudnn.deterministic   = True
-    torch.backends.cudnn.benchmark       = False
-# ────────────────────────────────────────────────────────────────────────────────
-
 
 
 def simulate_strategy(
@@ -107,9 +93,9 @@ class DQN(nn.Module):
             nn.ReLU(),
             #nn.Dropout(p=drsopout_p),
             nn.Linear(hidden_dim, hidden_dim),
-            # nn.ReLU(),
-            # nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
+            # nn.Linear(hidden_dim, hidden_dim),
+            #nn.ReLU(),
             #nn.Dropout(p=dropout_p),
             nn.Linear(hidden_dim, output_dim)
         )
@@ -185,6 +171,19 @@ class PairsTradingEnv:
         mean_cycle_length = np.mean(cycle_lengths)  
         std_cycle_length  = np.std(cycle_lengths)
 
+        #Compute mean and std of cycle mins and maxs to normalize the cycle mins and maxs in the state features
+        cycle_mins = [cycle.min() for cycle in self.spread_cycles]
+        cycle_maxs = [cycle.max() for cycle in self.spread_cycles]
+        mean_cycle_min = np.mean(cycle_mins)
+        mean_cycle_max = np.mean(cycle_maxs)
+        std_cycle_min  = np.std(cycle_mins)
+        std_cycle_max  = np.std(cycle_maxs)
+
+        #Compute mean and std of cycle skews to normalize the cycle skews in the state features
+        cycle_skews = [scipy.stats.skew(cycle) for cycle in self.spread_cycles]
+        mean_cycle_skew = np.mean(cycle_skews)
+        std_cycle_skew  = np.std(cycle_skews)
+
 
         for k, cycle in enumerate(self.spread_cycles):
 
@@ -199,19 +198,22 @@ class PairsTradingEnv:
                 # print(cycle)
                 # raise ValueError("No best pair found for cycle {}".format(k))
             
-            normalized_cycle_length = (len(cycle) - mean_cycle_length) / std_cycle_length
+            standardized_cycle_length = (len(cycle) - mean_cycle_length) / std_cycle_length
+            standardized_cycle_min = (cycle.min() - mean_cycle_min) / std_cycle_min
+            standardized_cycle_max = (cycle.max() - mean_cycle_max) / std_cycle_max
+            standardized_cycle_skew = (scipy.stats.skew(cycle) - mean_cycle_skew) / std_cycle_skew
 
             # basic stats
             stats = np.array([
             cycle.mean(),
             cycle.std(),
             #len(cycle),
-            normalized_cycle_length,
-            cycle.min(),
-            cycle.max(),
-            scipy.stats.skew(cycle),
-            # best_entry,
-            # best_stop,
+            standardized_cycle_length,
+            standardized_cycle_min,
+            standardized_cycle_max,
+            standardized_cycle_skew,
+            #best_entry,
+            #best_stop,
         ], dtype=np.float32)
             
             self.state_features.append(stats)
@@ -296,7 +298,7 @@ class PairsTradingEnv:
             #Get indexes of cycles to remove
             remove_indexes = []
             for i, cycle in enumerate(self.spread_cycles):
-                if cycle.max() > 4 or cycle.min() < -4:
+                if cycle.max() > 5 or cycle.min() < -5:
                     remove_indexes.append(i)   
 
             #Remove cycles from all three lists
