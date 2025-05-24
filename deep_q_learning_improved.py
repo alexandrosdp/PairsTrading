@@ -72,7 +72,7 @@ def simulate_strategy(
     if etype == 'win':
         reward = +1.0
     elif etype == 'loss':
-        reward = -1.0
+        reward = -0.5
     elif etype == 'forced_exit':
         reward = 0 # Forced exits are only possible in the last cycle of the training set, so we can ignore them for now.
 
@@ -184,6 +184,14 @@ class PairsTradingEnv:
         mean_cycle_skew = np.mean(cycle_skews)
         std_cycle_skew  = np.std(cycle_skews)
 
+        #Compute mean and std of cycle means and stds to normalize the cycle means and stds in the state features
+        cycle_means = [cycle.mean() for cycle in self.spread_cycles]
+        cycle_stds  = [cycle.std() for cycle in self.spread_cycles]
+        mean_cycle_mean = np.mean(cycle_means)
+        mean_cycle_std  = np.mean(cycle_stds)
+        std_cycle_mean  = np.std(cycle_means)
+        std_cycle_std   = np.std(cycle_stds)
+
 
         for k, cycle in enumerate(self.spread_cycles):
 
@@ -202,11 +210,15 @@ class PairsTradingEnv:
             standardized_cycle_min = (cycle.min() - mean_cycle_min) / std_cycle_min
             standardized_cycle_max = (cycle.max() - mean_cycle_max) / std_cycle_max
             standardized_cycle_skew = (scipy.stats.skew(cycle) - mean_cycle_skew) / std_cycle_skew
+            # standardized_cycle_mean = (cycle.mean() - mean_cycle_mean) / std_cycle_mean
+            # standardized_cycle_std  = (cycle.std()  - mean_cycle_std) / std_cycle_std
 
             # basic stats
             stats = np.array([
             cycle.mean(),
             cycle.std(),
+            # standardized_cycle_mean,
+            # standardized_cycle_std,
             #len(cycle),
             standardized_cycle_length,
             standardized_cycle_min,
@@ -294,18 +306,18 @@ class PairsTradingEnv:
         #Remove cycles that have a max z-score greater than 5 or min zscore less than -5 (to remove outlier cycles and reduce the action space for training)
         #ONLY DO THIS FOR TRAINING, NOT FOR EVALUATION
 
-        if not self.eval_mode:
-            #Get indexes of cycles to remove
-            remove_indexes = []
-            for i, cycle in enumerate(self.spread_cycles):
-                if cycle.max() > 5 or cycle.min() < -5:
-                    remove_indexes.append(i)   
+        # if not self.eval_mode:
+        #     #Get indexes of cycles to remove
+        #     remove_indexes = []
+        #     for i, cycle in enumerate(self.spread_cycles):
+        #         if cycle.max() > 5 or cycle.min() < -5:
+        #             remove_indexes.append(i)   
 
-            #Remove cycles from all three lists
-            for i in sorted(remove_indexes, reverse=True):
-                del self.spread_cycles[i]
-                del self.price_cycles[i]
-                del self.beta_cycles[i]     
+        #     #Remove cycles from all three lists
+        #     for i in sorted(remove_indexes, reverse=True):
+        #         del self.spread_cycles[i]
+        #         del self.price_cycles[i]
+        #         del self.beta_cycles[i]     
 
         # assign back so env can use them
         self.spreads = z
