@@ -13,7 +13,7 @@ from collections import deque
 from back_tester import * 
 import matplotlib.pyplot as plt
 import copy
-
+import optuna
 
 
 def simulate_strategy(
@@ -72,7 +72,7 @@ def simulate_strategy(
     if etype == 'win':
         reward = +1.0
     elif etype == 'loss':
-        reward = -0.5
+        reward = -1
     elif etype == 'forced_exit':
         reward = 0 # Forced exits are only possible in the last cycle of the training set, so we can ignore them for now.
 
@@ -423,7 +423,8 @@ def train_dqn(spreads_train: pd.Series,
               epsilon_decay: float = 0.995,
               replay_capacity: int = 1000,
               target_update_freq: int = 5, # After how many epochs to copy the online network’s weights into the target network.
-              hidden_dim: int = 64): # Number of neurons in each hidden layer of your DQN.
+              hidden_dim: int = 64,
+              tau: float = 0.01): # Number of neurons in each hidden layer of your DQN.
     """
     Main training loop for DQN.
     - Builds environment, networks, replay buffer, and optimizer.
@@ -573,7 +574,7 @@ def train_dqn(spreads_train: pd.Series,
                 # ─── Soft‐update target network ───────────────────────────
                 #nstead of a hard copy every K epochs, we nudge θ⁻ toward θ each step
                 #In this case we are retaining 99% of the previous target weight and adding 1% of the online network’s weight every step. This “soft” update smooths the transition, rather than doing a full 100% copy all at once.
-                τ = 0.01
+                τ = tau
                 for tgt_param, src_param in zip(target_net.parameters(),
                                                 online_net.parameters()): #airs them in the same order: the first weight in the target net with the first weight in the online net, the first bias with the first bias, and so on
                     tgt_param.data.mul_(1.0 - τ) #Multiply target network parameters by (1 - τ) 
@@ -597,7 +598,7 @@ def train_dqn(spreads_train: pd.Series,
 
         avg_reward = np.mean(epoch_rewards) #Record the average reward for this epoch, which is mean of the rewards collected over the episodes in this epoch.
         reward_history.append(avg_reward) #Append the average reward for this epoch to the reward history for later analysis.
-        print(f"Epoch {epoch:02d} | AvgReward: {avg_reward:.2f} | Epsilon: {epsilon:.3f}")
+        #print(f"Epoch {epoch:02d} | AvgReward: {avg_reward:.2f} | Epsilon: {epsilon:.3f}")
 
         #Win rates
         total = win_count + loss_count + forced_count + none_count
@@ -635,6 +636,75 @@ def train_dqn(spreads_train: pd.Series,
     # online_net.load_state_dict(best_weights)
 
     return online_net, replay_buffer,epoch_loss_history, reward_history,validation_reward_history,training_metrics #Return the trained online network, replay buffer, loss history, and reward history.
+
+
+def objective(trial,spreads_train, prices_train, beta_train,
+              spreads_val, prices_val, beta_val,
+              initial_capital, tx_cost,
+              entry_stop_pairs, num_epochs):
+    # a) sample hyper-parameters
+    lr     = trial.suggest_loguniform("lr", 1e-4, 1e-2)
+    batch  = trial.suggest_categorical("batch_size", [16, 32, 64])
+    hidden = trial.suggest_categorical("hidden_dim", [32, 64, 128])
+    gamma  = trial.suggest_float("gamma", 0.95, 0.999)
+    decay  = trial.suggest_float("epsilon_decay", 0.98, 0.995)
+    tau    = trial.suggest_float("tau", 1e-4, 1e-2)
+
+    # b) train for a small number of epochs for speed
+    _, _, _, _, val_rewards, _ = train_dqn(
+        spreads_train, prices_train, beta_train,
+        spreads_val,   prices_val,   beta_val,
+        initial_capital, tx_cost,
+        entry_stop_pairs,
+        num_epochs,           # keep this small during tuning
+        batch_size=batch,
+        gamma=gamma,
+        lr=lr,
+        epsilon_decay=decay,
+        hidden_dim=hidden,
+        tau=tau
+    )
+
+    # c) return the metric to minimize
+    #    (we negate because Optuna by default *minimizes*)
+    mean_last = np.mean(val_rewards[-10:])  # average of last 10 epochs
+    return -mean_last
+
+def optimize_hyperparameters(
+    spreads_train, prices_train, beta_train, spreads_val, prices_val, beta_val,
+    initial_capital, tx_cost, entry_stop_pairs,
+    n_trials, num_epochs,
+):
+    """
+    Optimize hyper-parameters using Optuna.
+    Returns the best trial and the study object.
+    """
+    # Create a study object
+    study = optuna.create_study(direction="minimize")  # We want to minimize the negative validation reward
+
+    # Set the progress bar
+    # Optimize the hyper-parameters
+    study.optimize(
+        lambda trial: objective(
+            trial, spreads_train, prices_train, beta_train,
+            spreads_val, prices_val, beta_val,
+            initial_capital, tx_cost, entry_stop_pairs,
+            num_epochs
+        ),
+        n_trials=n_trials, show_progress_bar=True)
+    
+    best = study.best_trial
+    # because we minimized -reward, flip the sign to get the actual reward:
+    best_reward = -best.value
+    best_params = best.params
+
+    print(f"🏆 Best validation reward: {best_reward:.4f}")
+    print("🔧 Best hyper-parameters:")
+    for k, v in best_params.items():
+        print(f"  • {k}: {v}")
+
+    return best_reward, best_params
+
 
 
 
