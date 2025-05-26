@@ -95,7 +95,7 @@ class DQN(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             # nn.Linear(hidden_dim, hidden_dim),
-            #nn.ReLU(),
+            # nn.ReLU(),
             #nn.Dropout(p=dropout_p),
             nn.Linear(hidden_dim, output_dim)
         )
@@ -449,7 +449,7 @@ def train_dqn(spreads_train: pd.Series,
         eval_mode=True) #Set eval_mode to True for validation
     
     
-    #print("Number of cycles:", len(env.spread_cycles))
+    print("Number of cycles:", len(env.spread_cycles))
     # print("CYCLES:")
     # print("-------")
     #print(env.spread_cycles)
@@ -598,7 +598,7 @@ def train_dqn(spreads_train: pd.Series,
 
         avg_reward = np.mean(epoch_rewards) #Record the average reward for this epoch, which is mean of the rewards collected over the episodes in this epoch.
         reward_history.append(avg_reward) #Append the average reward for this epoch to the reward history for later analysis.
-        #print(f"Epoch {epoch:02d} | AvgReward: {avg_reward:.2f} | Epsilon: {epsilon:.3f}")
+        print(f"Epoch {epoch:02d} | AvgReward: {avg_reward:.2f} | Epsilon: {epsilon:.3f}")
 
         #Win rates
         total = win_count + loss_count + forced_count + none_count
