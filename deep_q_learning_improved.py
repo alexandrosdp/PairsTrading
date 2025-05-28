@@ -244,7 +244,6 @@ class PairsTradingEnv:
             
         self.cycle_idx = 0
 
-
     def create_cycles(self, min_threshold: float, tol: float = 0.10):
         """
         Split the series into (divergence → revert) cycles at or above min_threshold.
@@ -734,6 +733,7 @@ def evaluate_dqn(
 
     # 3) Step through *each* cycle until we exhaust them
     while not done:
+
         k = env.cycle_idx  # which cycle am I about to trade?
 
         # Greedy action
@@ -755,7 +755,7 @@ def evaluate_dqn(
 
         # 5) Record what just happened
         episodes.append({
-            'cycle_idx':        k,
+            'cycle_idx':        k+1, #Set cycle index to k+1 because we always trade the cycle at k+1 after looking at the features of cycle k
             'entry_meta':       entry_meta,
             'exit_meta':        exit_meta,
             'entry_threshold':  entry_thr,
