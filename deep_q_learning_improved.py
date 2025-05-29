@@ -180,9 +180,14 @@ class PairsTradingEnv:
         std_cycle_max  = np.std(cycle_maxs)
 
         #Compute mean and std of cycle skews to normalize the cycle skews in the state features
-        cycle_skews = [scipy.stats.skew(cycle) for cycle in self.spread_cycles]
+        cycle_skews = [scipy.stats.skew(cycle) for cycle in self.spread_cycles]        
         mean_cycle_skew = np.mean(cycle_skews)
         std_cycle_skew  = np.std(cycle_skews)
+
+        #Compute mean and std of cycle kurtosis to normalize the cycle kurtosis in the state features
+        cycle_kurts = [scipy.stats.kurtosis(cycle, fisher=True) for cycle in self.spread_cycles] # Fisher's definition of kurtosis (excess kurtosis)
+        mean_cycle_kurtosis = np.mean(cycle_kurts)
+        std_cycle_kurtosis  = np.std(cycle_kurts)
 
         #Compute mean and std of cycle means and stds to normalize the cycle means and stds in the state features
         cycle_means = [cycle.mean() for cycle in self.spread_cycles]
@@ -210,8 +215,11 @@ class PairsTradingEnv:
             standardized_cycle_min = (cycle.min() - mean_cycle_min) / std_cycle_min
             standardized_cycle_max = (cycle.max() - mean_cycle_max) / std_cycle_max
             standardized_cycle_skew = (scipy.stats.skew(cycle) - mean_cycle_skew) / std_cycle_skew
+            standardized_kurtosis = (scipy.stats.kurtosis(cycle, fisher=True) - mean_cycle_kurtosis) / std_cycle_kurtosis
             # standardized_cycle_mean = (cycle.mean() - mean_cycle_mean) / std_cycle_mean
             # standardized_cycle_std  = (cycle.std()  - mean_cycle_std) / std_cycle_std
+            
+            kutosis_standardized = scipy.stats.kurtosis(cycle, fisher=True) # Fisher's definition of kurtosis (excess kurtosis)
 
             # basic stats
             stats = np.array([
@@ -224,6 +232,7 @@ class PairsTradingEnv:
             standardized_cycle_min,
             standardized_cycle_max,
             standardized_cycle_skew,
+            standardized_kurtosis
             #best_entry,
             #best_stop,
         ], dtype=np.float32)
