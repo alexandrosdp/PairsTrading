@@ -1,0 +1,2 @@
+num_epochs,batch_size,gamma,lr,epsilon_start,epsilon_end,epsilon_decay,replay_capacity,target_update_freq,hidden_dim,tau
+220,32,0.99,0.001,1.0,0.01,0.995,1000,10,64,0.01

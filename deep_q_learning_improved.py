@@ -344,11 +344,13 @@ class PairsTradingEnv:
 
         #print(len(spread_cycles))
 
+        entry_stop_pairs_all_inclusive = [(1, 2), (2, 3),(3, 4),(4,5),(5,6),(6,7),(7,8),(8,9),(9,10)]
+
         best_pairs = []
         for z, p, b in zip(spread_cycles, price_cycles, beta_cycles):
             #best_profit = -float('inf')
             best_pair   = None
-            for (e_thr, s_thr) in self.entry_stop_pairs:
+            for (e_thr, s_thr) in entry_stop_pairs_all_inclusive:
                 reward, profit, entry_meta, exit_meta = simulate_strategy(
                     z, p, b,
                     initial_capital, tx_cost,
