@@ -196,6 +196,8 @@ class PairsTradingEnv:
         mean_cycle_std  = np.mean(cycle_stds)
         std_cycle_mean  = np.std(cycle_means)
         std_cycle_std   = np.std(cycle_stds)
+        
+        
 
 
         for k, cycle in enumerate(self.spread_cycles):
@@ -216,8 +218,8 @@ class PairsTradingEnv:
             standardized_cycle_max = (cycle.max() - mean_cycle_max) / std_cycle_max
             standardized_cycle_skew = (scipy.stats.skew(cycle) - mean_cycle_skew) / std_cycle_skew
             standardized_kurtosis = (scipy.stats.kurtosis(cycle, fisher=True) - mean_cycle_kurtosis) / std_cycle_kurtosis
-            # standardized_cycle_mean = (cycle.mean() - mean_cycle_mean) / std_cycle_mean
-            # standardized_cycle_std  = (cycle.std()  - mean_cycle_std) / std_cycle_std
+            standardized_cycle_mean = (cycle.mean() - mean_cycle_mean) / std_cycle_mean
+            standardized_cycle_std  = (cycle.std()  - mean_cycle_std) / std_cycle_std
             
             kutosis_standardized = scipy.stats.kurtosis(cycle, fisher=True) # Fisher's definition of kurtosis (excess kurtosis)
 
@@ -225,8 +227,8 @@ class PairsTradingEnv:
             stats = np.array([
             cycle.mean(),
             cycle.std(),
-            # standardized_cycle_mean,
-            # standardized_cycle_std,
+            #standardized_cycle_mean,
+            #standardized_cycle_std,
             #len(cycle),
             standardized_cycle_length,
             standardized_cycle_min,

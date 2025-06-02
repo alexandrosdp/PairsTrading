@@ -172,10 +172,10 @@ def backtest_pair_rolling(
         current_S2 = S2.loc[current_index]
 
         
-        # Initialization: first bar
-        if t == 0 and agent_trader == False: #Only do this if you are not using the agent trader
-            positions.append(0)
-            continue
+        # # Initialization: first bar
+        # if t == 0 and agent_trader == False: #Only do this if you are not using the agent trader
+        #     positions.append(0)
+        #     continue
 
         # If z-score is NaN, remain in the current position
         if pd.isna(current_z):
@@ -206,6 +206,7 @@ def backtest_pair_rolling(
                 stop_out = True
                 stopped_out_position = -1 if current_z > 0 else +1
                 positions.append(0)
+                #print("⚠️ Stop-out triggered during lockout")
                 continue
             
             # (c) otherwise, try to enter on this bar
@@ -334,242 +335,242 @@ def backtest_pair_rolling(
 
 
 
-def backtest_pair_rolling_order_book(
-    spread_series, 
-    S1_mid_price, 
-    S2_mid_price,
-    S1_ask,
-    S1_ask_amount,
-    S1_bid,
-    S1_bid_amount,
-    S2_ask,
-    S2_ask_amount,
-    S2_bid,
-    S2_bid_amount,
-    zscore, entry_threshold=1.0,
-    exit_threshold=0.0, 
-    stop_loss_threshold=2.0
-):
-    """
-    A bar-based backtest that does NOT do linear interpolation,
+# def backtest_pair_rolling_order_book(
+#     spread_series, 
+#     S1_mid_price, 
+#     S2_mid_price,
+#     S1_ask,
+#     S1_ask_amount,
+#     S1_bid,
+#     S1_bid_amount,
+#     S2_ask,
+#     S2_ask_amount,
+#     S2_bid,
+#     S2_bid_amount,
+#     zscore, entry_threshold=1.0,
+#     exit_threshold=0.0, 
+#     stop_loss_threshold=2.0
+# ):
+#     """
+#     A bar-based backtest that does NOT do linear interpolation,
     
-    Trading rules (discrete bar):
-      - We check the z-score at each bar's close:
-          * If position == 0 (flat) and zscore >= +entry_threshold, open short spread at this bar's price (position = -1).
-          * If position == 0 (flat) and zscore <= -entry_threshold, open long spread at this bar's price (position = +1).
-      - If position == +1 (long spread) and zscore >= -exit_threshold => exit (win).
-        * Or if zscore <= -stop_loss_threshold => exit (loss).
-      - If position == -1 (short spread) and zscore <= +exit_threshold => exit (win).
-        * Or if zscore >= +stop_loss_threshold => exit (loss).
+#     Trading rules (discrete bar):
+#       - We check the z-score at each bar's close:
+#           * If position == 0 (flat) and zscore >= +entry_threshold, open short spread at this bar's price (position = -1).
+#           * If position == 0 (flat) and zscore <= -entry_threshold, open long spread at this bar's price (position = +1).
+#       - If position == +1 (long spread) and zscore >= -exit_threshold => exit (win).
+#         * Or if zscore <= -stop_loss_threshold => exit (loss).
+#       - If position == -1 (short spread) and zscore <= +exit_threshold => exit (win).
+#         * Or if zscore >= +stop_loss_threshold => exit (loss).
 
-    Returns:
-        positions (pd.Series): The discrete position (+1, -1, or 0) at each bar.
-        trade_entries (list): A list of entry dicts: {'time','S1','S2','z','position'}.
-        trade_exits (list): A list of exit dicts:  {'time','S1','S2','z','exit_type'}.
+#     Returns:
+#         positions (pd.Series): The discrete position (+1, -1, or 0) at each bar.
+#         trade_entries (list): A list of entry dicts: {'time','S1','S2','z','position'}.
+#         trade_exits (list): A list of exit dicts:  {'time','S1','S2','z','exit_type'}.
 
-    Note: No sub-bar interpolation or same-bar entry/exit logic.
-          We simply act on each bar's z-score once we have it.
-    """
+#     Note: No sub-bar interpolation or same-bar entry/exit logic.
+#           We simply act on each bar's z-score once we have it.
+#     """
 
-    positions = []
-    position  = 0   # +1 (long spread), -1 (short spread), or 0 (flat)
-    stopped_out_position = 0 #Store the that you were in when you were stopped out
-    stop_out  = False
+#     positions = []
+#     position  = 0   # +1 (long spread), -1 (short spread), or 0 (flat)
+#     stopped_out_position = 0 #Store the that you were in when you were stopped out
+#     stop_out  = False
 
-    trade_entries = []
-    trade_exits   = []
+#     trade_entries = []
+#     trade_exits   = []
 
-    entry_price_S1 = None
-    entry_price_S2 = None
-    entry_z        = None
+#     entry_price_S1 = None
+#     entry_price_S2 = None
+#     entry_z        = None
 
-    z_index = zscore.index
+#     z_index = zscore.index
 
-    for t, current_index in enumerate(z_index):
+#     for t, current_index in enumerate(z_index):
 
-        #Get Current Z-Score At Index
-        #-------------------
-        current_z  = zscore.loc[current_index]
+#         #Get Current Z-Score At Index
+#         #-------------------
+#         current_z  = zscore.loc[current_index]
 
-        #Get Current Mid Prices At Index
-        #-------------------
-        current_S1_mid_price = S1_mid_price.loc[current_index]
-        current_S2_mid_price = S2_mid_price.loc[current_index]
+#         #Get Current Mid Prices At Index
+#         #-------------------
+#         current_S1_mid_price = S1_mid_price.loc[current_index]
+#         current_S2_mid_price = S2_mid_price.loc[current_index]
 
-        #Get Current Ask/Bid Prices And Amounts At Index For S1
-        #-------------------
-        current_S1_ask = S1_ask.loc[current_index]
-        current_S1_ask_amount = S1_ask_amount.loc[current_index]
-        current_S1_bid = S1_bid.loc[current_index]
-        current_S1_bid_amount = S1_bid_amount.loc[current_index]
+#         #Get Current Ask/Bid Prices And Amounts At Index For S1
+#         #-------------------
+#         current_S1_ask = S1_ask.loc[current_index]
+#         current_S1_ask_amount = S1_ask_amount.loc[current_index]
+#         current_S1_bid = S1_bid.loc[current_index]
+#         current_S1_bid_amount = S1_bid_amount.loc[current_index]
 
-        #Get Current Ask/Bid Prices And Amounts At Index For S2
-        #-------------------
-        current_S2_ask = S2_ask.loc[current_index]
-        current_S2_ask_amount = S2_ask_amount.loc[current_index]
-        current_S2_bid = S2_bid.loc[current_index]
-        current_S2_bid_amount = S2_bid_amount.loc[current_index]
+#         #Get Current Ask/Bid Prices And Amounts At Index For S2
+#         #-------------------
+#         current_S2_ask = S2_ask.loc[current_index]
+#         current_S2_ask_amount = S2_ask_amount.loc[current_index]
+#         current_S2_bid = S2_bid.loc[current_index]
+#         current_S2_bid_amount = S2_bid_amount.loc[current_index]
         
-        # Initialization: first bar
-        if t == 0:
-            positions.append(0)
-            continue
+#         # Initialization: first bar
+#         if t == 0:
+#             positions.append(0)
+#             continue
 
-        # If z-score is NaN, remain in the current position
-        if pd.isna(current_z):
-            positions.append(position)
-            continue
+#         # If z-score is NaN, remain in the current position
+#         if pd.isna(current_z):
+#             positions.append(position)
+#             continue
 
-        # CASE 1: No open position
-        if position == 0:
-            if stop_out:
+#         # CASE 1: No open position
+#         if position == 0:
+#             if stop_out:
                 
-                #If you were in a long position, you can re-enter if the z-score is equal to or crosses the zero line from below
-                if stopped_out_position == 1:
+#                 #If you were in a long position, you can re-enter if the z-score is equal to or crosses the zero line from below
+#                 if stopped_out_position == 1:
 
-                    if current_z >= exit_threshold:
-                        stop_out = False
-                        stopped_out_position = 0    
-                    positions.append(0)
+#                     if current_z >= exit_threshold:
+#                         stop_out = False
+#                         stopped_out_position = 0    
+#                     positions.append(0)
 
-                #If you were in a short position, you can re-enter if the z-score is equal to or crosses the zero line from above
-                elif stopped_out_position == -1:
-                    if current_z <= -exit_threshold:
-                        stop_out = False
-                        stopped_out_position = 0
-                    positions.append(0)
+#                 #If you were in a short position, you can re-enter if the z-score is equal to or crosses the zero line from above
+#                 elif stopped_out_position == -1:
+#                     if current_z <= -exit_threshold:
+#                         stop_out = False
+#                         stopped_out_position = 0
+#                     positions.append(0)
 
-                # # If you want to prevent re-entry until z is near zero:
-                # if abs(current_z) <= 0.1:
-                #     stop_out = False
-                # # remain flat
-                # positions.append(0)
+#                 # # If you want to prevent re-entry until z is near zero:
+#                 # if abs(current_z) <= 0.1:
+#                 #     stop_out = False
+#                 # # remain flat
+#                 # positions.append(0)
 
-            else:
-                # If zscore >= +entry_threshold => short spread: Short S1, Long S2
-                if current_z >= entry_threshold:
-                    position      = -1
-                    entry_price_S1 = current_S1_bid #Short S1 at best bid price
-                    entry_price_S2 = current_S2_ask #Long S2 at best ask price
-                    amount_S1 = current_S1_bid_amount
-                    amount_S2 = current_S2_ask_amount
-                    entry_z        = current_z
-                    trade_entries.append({
-                        'time': current_index,
-                        'S1':   entry_price_S1,
-                        'S2':   entry_price_S2,
-                        'S1 Amount': amount_S1,
-                        'S2 Amount': amount_S2,
-                        'z':    entry_z,
-                        'position': position
-                    })
-                    positions.append(position)
+#             else:
+#                 # If zscore >= +entry_threshold => short spread: Short S1, Long S2
+#                 if current_z >= entry_threshold:
+#                     position      = -1
+#                     entry_price_S1 = current_S1_bid #Short S1 at best bid price
+#                     entry_price_S2 = current_S2_ask #Long S2 at best ask price
+#                     amount_S1 = current_S1_bid_amount
+#                     amount_S2 = current_S2_ask_amount
+#                     entry_z        = current_z
+#                     trade_entries.append({
+#                         'time': current_index,
+#                         'S1':   entry_price_S1,
+#                         'S2':   entry_price_S2,
+#                         'S1 Amount': amount_S1,
+#                         'S2 Amount': amount_S2,
+#                         'z':    entry_z,
+#                         'position': position
+#                     })
+#                     positions.append(position)
 
-                # If zscore <= -entry_threshold => long spread: Long S1, Short S2
-                elif current_z <= -entry_threshold:
-                    position       = 1
-                    entry_price_S1 = current_S1_ask #Long S1 at best ask price
-                    entry_price_S2 = current_S2_bid #Short S2 at best bid price
-                    amount_S1 = current_S1_ask_amount
-                    amount_S2 = current_S2_bid_amount
-                    entry_z        = current_z
-                    trade_entries.append({
-                        'time': current_index,
-                        'S1':   entry_price_S1,
-                        'S2':   entry_price_S2,
-                        'S1 Amount': amount_S1,
-                        'S2 Amount': amount_S2,
-                        'z':    entry_z,
-                        'position': position
-                    })
-                    positions.append(position)
-                else:
-                    # no entry
-                    positions.append(0)
+#                 # If zscore <= -entry_threshold => long spread: Long S1, Short S2
+#                 elif current_z <= -entry_threshold:
+#                     position       = 1
+#                     entry_price_S1 = current_S1_ask #Long S1 at best ask price
+#                     entry_price_S2 = current_S2_bid #Short S2 at best bid price
+#                     amount_S1 = current_S1_ask_amount
+#                     amount_S2 = current_S2_bid_amount
+#                     entry_z        = current_z
+#                     trade_entries.append({
+#                         'time': current_index,
+#                         'S1':   entry_price_S1,
+#                         'S2':   entry_price_S2,
+#                         'S1 Amount': amount_S1,
+#                         'S2 Amount': amount_S2,
+#                         'z':    entry_z,
+#                         'position': position
+#                     })
+#                     positions.append(position)
+#                 else:
+#                     # no entry
+#                     positions.append(0)
 
-        # CASE 2: We already have a position
-        else:
-            if position == 1:  # LONG SPREAD: Long S1, Short S2 (To close the position, we need to sell S1 and buy S2)
-                # Normal exit => if zscore >= -exit_threshold => 'win'
-                if current_z >= -exit_threshold:
-                    trade_exits.append({
-                        'time': current_index,
-                        'S1':   current_S1_bid, #Sell S1 at best bid price
-                        'S2':   current_S2_ask, #Buy S2 at best ask price
-                        'S1 Amount': current_S1_bid_amount,
-                        'S2 Amount': current_S2_ask_amount,
-                        'z':    current_z,
-                        'exit_type': 'win'
-                    })
-                    position      = 0
-                    entry_price_S1 = None
-                    entry_price_S2 = None
-                    stop_out      = False
-                # Stop-loss => if zscore <= -stop_loss_threshold => 'loss'
-                elif current_z <= -stop_loss_threshold:
-                    trade_exits.append({
-                        'time': current_index,
-                        'S1':   current_S1_bid, #Sell S1 at best bid price
-                        'S2':   current_S2_ask, #Buy S2 at best ask price
-                        'S1 Amount': current_S1_bid_amount,
-                        'S2 Amount': current_S2_ask_amount,
-                        'z':    current_z,
-                        'exit_type': 'loss'
-                    })
-                    stopped_out_position = 1
-                    position       = 0
-                    entry_price_S1 = None
-                    entry_price_S2 = None
-                    stop_out       = True
-                positions.append(position)
+#         # CASE 2: We already have a position
+#         else:
+#             if position == 1:  # LONG SPREAD: Long S1, Short S2 (To close the position, we need to sell S1 and buy S2)
+#                 # Normal exit => if zscore >= -exit_threshold => 'win'
+#                 if current_z >= -exit_threshold:
+#                     trade_exits.append({
+#                         'time': current_index,
+#                         'S1':   current_S1_bid, #Sell S1 at best bid price
+#                         'S2':   current_S2_ask, #Buy S2 at best ask price
+#                         'S1 Amount': current_S1_bid_amount,
+#                         'S2 Amount': current_S2_ask_amount,
+#                         'z':    current_z,
+#                         'exit_type': 'win'
+#                     })
+#                     position      = 0
+#                     entry_price_S1 = None
+#                     entry_price_S2 = None
+#                     stop_out      = False
+#                 # Stop-loss => if zscore <= -stop_loss_threshold => 'loss'
+#                 elif current_z <= -stop_loss_threshold:
+#                     trade_exits.append({
+#                         'time': current_index,
+#                         'S1':   current_S1_bid, #Sell S1 at best bid price
+#                         'S2':   current_S2_ask, #Buy S2 at best ask price
+#                         'S1 Amount': current_S1_bid_amount,
+#                         'S2 Amount': current_S2_ask_amount,
+#                         'z':    current_z,
+#                         'exit_type': 'loss'
+#                     })
+#                     stopped_out_position = 1
+#                     position       = 0
+#                     entry_price_S1 = None
+#                     entry_price_S2 = None
+#                     stop_out       = True
+#                 positions.append(position)
 
-            elif position == -1:  # SHORT SPREAD: Short S1, Long S2 (To close the position, we need to buy S1 and sell S2)
-                # Normal exit => if zscore <= exit_threshold => 'win'
-                if current_z <= exit_threshold:
-                    trade_exits.append({
-                        'time': current_index,
-                        'S1':   current_S1_ask, #Buy S1 at best ask price
-                        'S2':   current_S2_bid, #Sell S2 at best bid price
-                        'S1 Amount': current_S1_ask_amount,
-                        'S2 Amount': current_S2_bid_amount,
-                        'z':    current_z,
-                        'exit_type': 'win'
-                    })
-                    position       = 0
-                    entry_price_S1 = None
-                    entry_price_S2 = None
-                    stop_out       = False
-                # Stop-loss => if zscore >= stop_loss_threshold => 'loss'
-                elif current_z >= stop_loss_threshold:
-                    trade_exits.append({
-                      'time': current_index,
-                        'S1':   current_S1_ask, #Buy S1 at best ask price
-                        'S2':   current_S2_bid, #Sell S2 at best bid price
-                        'S1 Amount': current_S1_ask_amount,
-                        'S2 Amount': current_S2_bid_amount,
-                        'z':    current_z,
-                        'exit_type': 'loss'
-                    })
-                    stopped_out_position = -1
-                    position       = 0
-                    entry_price_S1 = None
-                    entry_price_S2 = None
-                    stop_out       = True
-                positions.append(position)
+#             elif position == -1:  # SHORT SPREAD: Short S1, Long S2 (To close the position, we need to buy S1 and sell S2)
+#                 # Normal exit => if zscore <= exit_threshold => 'win'
+#                 if current_z <= exit_threshold:
+#                     trade_exits.append({
+#                         'time': current_index,
+#                         'S1':   current_S1_ask, #Buy S1 at best ask price
+#                         'S2':   current_S2_bid, #Sell S2 at best bid price
+#                         'S1 Amount': current_S1_ask_amount,
+#                         'S2 Amount': current_S2_bid_amount,
+#                         'z':    current_z,
+#                         'exit_type': 'win'
+#                     })
+#                     position       = 0
+#                     entry_price_S1 = None
+#                     entry_price_S2 = None
+#                     stop_out       = False
+#                 # Stop-loss => if zscore >= stop_loss_threshold => 'loss'
+#                 elif current_z >= stop_loss_threshold:
+#                     trade_exits.append({
+#                       'time': current_index,
+#                         'S1':   current_S1_ask, #Buy S1 at best ask price
+#                         'S2':   current_S2_bid, #Sell S2 at best bid price
+#                         'S1 Amount': current_S1_ask_amount,
+#                         'S2 Amount': current_S2_bid_amount,
+#                         'z':    current_z,
+#                         'exit_type': 'loss'
+#                     })
+#                     stopped_out_position = -1
+#                     position       = 0
+#                     entry_price_S1 = None
+#                     entry_price_S2 = None
+#                     stop_out       = True
+#                 positions.append(position)
 
-    # Convert positions list to Series
-    positions = pd.Series(positions, index=spread_series.index)
+#     # Convert positions list to Series
+#     positions = pd.Series(positions, index=spread_series.index)
 
-    # Print basic stats
-    total_closed = len(trade_exits)
-    wins  = sum(1 for e in trade_exits if e['exit_type'] == 'win')
-    losses= sum(1 for e in trade_exits if e['exit_type'] == 'loss')
+#     # Print basic stats
+#     total_closed = len(trade_exits)
+#     wins  = sum(1 for e in trade_exits if e['exit_type'] == 'win')
+#     losses= sum(1 for e in trade_exits if e['exit_type'] == 'loss')
 
-    # print(f"Total trades closed: {total_closed} (Wins={wins}, Losses={losses})")
-    # if total_closed > 0:
-    #     print(f"Win rate: {wins / total_closed:.2f}")
+#     # print(f"Total trades closed: {total_closed} (Wins={wins}, Losses={losses})")
+#     # if total_closed > 0:
+#     #     print(f"Win rate: {wins / total_closed:.2f}")
 
-    return positions, trade_entries, trade_exits
+#     return positions, trade_entries, trade_exits
 
 
 def compute_sharpe_ratio(initial_capital,trade_profits, risk_free_rate=0.0):
@@ -597,6 +598,34 @@ def compute_sharpe_ratio(initial_capital,trade_profits, risk_free_rate=0.0):
 
     return sharpe_ratio
 
+#Create method to calculate sortino ratio
+def compute_sortino_ratio(initial_capital, trade_profits, risk_free_rate=0.0):
+    """
+    Calculate the Sortino ratio of a trading strategy.
+    The Sortino ratio is a measure of risk-adjusted
+    return that penalizes only downside volatility.
+    Parameters:
+    initial_capital (float): The initial capital of the portfolio.
+    trade_profits (list): A list of trade profits.
+    risk_free_rate (float): The risk-free rate of return.
+    Returns:
+    sortino_ratio (float): The Sortino ratio of the strategy.
+    """
+    trade_profits = np.array(trade_profits)
+
+    trade_returns = trade_profits / initial_capital
+
+    mean_return = np.mean(trade_returns)
+    downside_returns = trade_returns[trade_returns < 0]
+    downside_std = np.std(downside_returns)
+
+    if downside_std == 0:
+        return np.nan  # Avoid division by zero
+
+    sortino_ratio = (mean_return - risk_free_rate) / downside_std
+
+    return sortino_ratio
+
 
 def compute_max_drawdown(initial_capital,cumulative_profit_series):
 
@@ -608,7 +637,6 @@ def compute_max_drawdown(initial_capital,cumulative_profit_series):
     initial_capital (float): The initial capital of the portfolio.
     cumulative_profit_series (pd.Series): A series of cumulative profits over time.
     Returns:
-    max_drawdown (float): The maximum drawdown value.
     max_drawdown_percentage (float): The maximum drawdown percentage.
     """
  
@@ -624,7 +652,7 @@ def compute_max_drawdown(initial_capital,cumulative_profit_series):
     # Calculate the maximum drawdown percentage
     max_drawdown_percentage = max_drawdown * 100
 
-    max_drawdown_percentage = abs(max_drawdown_percentage) #Convert to positive value
+    #max_drawdown_percentage = abs(max_drawdown_percentage) #Convert to positive value
 
     return max_drawdown_percentage
 
