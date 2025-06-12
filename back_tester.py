@@ -652,7 +652,7 @@ def compute_max_drawdown(initial_capital,cumulative_profit_series):
     # Calculate the maximum drawdown percentage
     max_drawdown_percentage = max_drawdown * 100
 
-    #max_drawdown_percentage = abs(max_drawdown_percentage) #Convert to positive value
+    max_drawdown_percentage = abs(max_drawdown_percentage) #Convert to positive value
 
     return max_drawdown_percentage
 
