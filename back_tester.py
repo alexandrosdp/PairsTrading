@@ -1712,10 +1712,26 @@ def plot_trading_simulation(
 
     ax1.plot(S1, label=sym1, color='blue')
     ax2.plot(S2, label=sym2, color='red')
-    ax1.set_ylabel(sym1, color='blue')
-    ax2.set_ylabel(sym2, color='red')
-    plt.title(f"Underlying Prices: {sym1} and {sym2}")
+    # ax1.set_ylabel(sym1, color='blue')
+    # ax2.set_ylabel(sym2, color='red')
+    ax1.set_ylabel('S1', color='blue')
+    ax2.set_ylabel('S2', color='red')
 
+    # #Make x and y labels bold with a larger font size
+    # ax1.tick_params(axis='y', labelcolor='blue', labelsize=12, fontweight='bold')
+    # ax2.tick_params(axis='y', labelcolor='red', labelsize=12, fontweight='bold')
+
+        # Customize the x-axis and y-axis labels for ax1
+    #ax1.set_xlabel("X-Axis Label", fontsize=12, fontweight='bold')  # Set bold and large font for x-axis label
+    ax1.set_ylabel("S1", fontsize=12, fontweight='bold')  # Set bold and large font for y-axis label
+
+    # Customize the x-axis and y-axis labels for ax2
+    ax2.set_ylabel("S2", fontsize=12, fontweight='bold')  # Set bold and large font for y-axis label
+
+    #plt.title(f"Price time series: {sym1} and {sym2}")
+    plt.title(f"Price time series S1 and S2", fontsize=14, fontweight='bold')
+
+    
     #print("Trades in window:")
     # Highlight each trade interval.
     i = 0
@@ -1781,6 +1797,8 @@ def plot_trading_simulation(
     # Subplot 2: Z-Score Plot with Interpolated Entry/Exit Markers.
     plt.subplot(5, 1, 2)
     plt.plot(zscore, label='Z-Score', color='purple', marker='o', markersize=3)
+    plt.xlabel('Time', fontsize=12, fontweight='bold')
+    plt.ylabel('Z-Score', fontsize=12, fontweight='bold')
     plt.axhline(0, color='grey', linestyle='--', label='Mean')
     plt.axhline(entry_threshold, color='green', linestyle='--', label='Entry Threshold')
     plt.axhline(-entry_threshold, color='green', linestyle='--')
@@ -1792,7 +1810,7 @@ def plot_trading_simulation(
     else:
         print("Stop loss threshold is too high to be plotted")
 
-    plt.title("Rolling Z-Score of Spread")
+    plt.title("Rolling Z-Score of Spread", fontsize=14, fontweight='bold')
     # Plot interpolated entry markers for z-score.
     if trade_entries is not None:
 
@@ -1825,35 +1843,23 @@ def plot_trading_simulation(
             z_val = exit['z']
             if exit['exit_type'] == 'win':
                 if not plotted_z_exit_win:
-                    plt.scatter(t, z_val, marker='o', color='blue', s=100, label='Exit Z (Win, Interp)')
+                    plt.scatter(t, z_val, marker='o', color='blue', s=100, label='Exit Z (Win)')
                     plotted_z_exit_win = True
                 else:
                     plt.scatter(t, z_val, marker='o', color='blue', s=100)
             elif exit['exit_type'] == 'loss':
                 if not plotted_z_exit_loss:
-                    plt.scatter(t, z_val, marker='o', color='orange', s=100, label='Exit Z (Loss, Interp)')
+                    plt.scatter(t, z_val, marker='o', color='orange', s=100, label='Exit Z (Loss)')
                     plotted_z_exit_loss = True
                 else:
                     plt.scatter(t, z_val, marker='o', color='orange', s=100)
 
-    plt.legend()
+    plt.legend(loc='upper right', fontsize=10)
 
-    # # Subplot 3: Cumulative Profit Curve.
-    # plt.subplot(5, 1, 3)
-    # plt.plot(cum_pnl, label="Cumulative Profit", color='green')
-    # plt.title("Cumulative Profit Curve")
-    # plt.legend()
+    plt.savefig("trading_simulation_plot.png", dpi=300, bbox_inches='tight')
 
-    # Subplot 4: Trading Positions.
-    plt.subplot(5, 1, 4)
-    plt.plot(positions, label="Trading Positions", drawstyle='steps-mid')
-    plt.title("Trading Positions")
-    plt.legend()
-
-    # (Optional) Subplot 5: Trade Returns Histogram.
-    plt.subplot(5, 1, 5)
-    plt.title("Trade Returns Histogram (Optional)")
-    plt.tight_layout()
+    #Adjust spacing between subplots
+    plt.subplots_adjust(hspace=0.5)
 
     plt.show()
 
