@@ -1,0 +1,2 @@
+Pair,Total return (%),Sharpe Ratio,Max Drawdown (%),Number of trades,Non-stop loss win rate (%),Mean trade duration/Reversion speed from threshold (mins),Average entry beta,Median MABD (%),Beta series returns MAD (%),Average S1 trade returns (%),Average S2 trade returns (%)
+XRPUSDT_2024_5m ~ ADAUSDT_2024_5m,24.488526921014415,0.15991137757268245,7.085262984909592,122,72.95081967213115,380.8606557377049,0.4781076814307406,27.191757137499216,0.4126570614231162,0.05109809279135111,0.1641055687944121
