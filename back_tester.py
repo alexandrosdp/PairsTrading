@@ -598,6 +598,54 @@ def compute_sharpe_ratio(initial_capital,trade_profits, risk_free_rate=0.0):
 
     return sharpe_ratio
 
+def compute_annualized_sharpe_ratio(trade_returns, trade_exit_times,test_set_times,initial_capital, risk_free_rate = 0.0):
+
+    """
+    Calculate the annualized Sharpe ratio of a trading strategy.
+    The annualized Sharpe ratio is a measure of risk-adjusted return that accounts for the frequency of trades.
+    It is calculated as the Sharpe ratio multiplied by the square root of the number of trading periods in a year.
+    Parameters:
+    trade_profits (list): A list of trade returns.
+    trade_exit_times (list): A list of exit times for trades.
+    test_set_times (list): A list of times in the test set.
+    initial_capital (float): The initial capital of the portfolio.
+    risk_free_rate (float): The risk-free rate of return.
+    Returns:
+    annualized_sharpe_ratio (float): The annualized Sharpe ratio of the strategy.
+    """
+    
+    #Add indexes for trade profits
+    trades_with_exit_times_df = pd.DataFrame({
+        'Exit Time': trade_exit_times,
+        'Trade Returns': trade_returns
+    })
+
+
+    #Reindex the DataFrame to the test set times, fulling in dates with no returns with 0. Now we have a timeframe of returns for the entire test set, with 0% return for intervals where there were no trade returns
+    trades_with_exit_times_df.set_index('Exit Time', inplace=True)
+    trades_with_exit_times_df = trades_with_exit_times_df.reindex(test_set_times, fill_value=0)
+
+
+    #Calculate the mean and standard deviation of the returns
+    mean_return = trades_with_exit_times_df['Trade Returns'].mean()
+    std_return = trades_with_exit_times_df['Trade Returns'].std()
+
+    #Calculate the sharpe ratio
+    sharpe_ratio = (mean_return - risk_free_rate) / std_return
+
+    #Calculate the number of trading periods in a year
+    trading_periods_per_year = 365 * 288  # Assuming 5min frequency trading in the crypto market which is 24/7, adjust if different frequency
+
+    #Calculate the annualized Sharpe ratio
+    annualized_sharpe_ratio = sharpe_ratio * np.sqrt(trading_periods_per_year)
+
+
+    return annualized_sharpe_ratio
+
+
+
+
+
 #Create method to calculate sortino ratio
 def compute_sortino_ratio(initial_capital, trade_profits, risk_free_rate=0.0):
     """

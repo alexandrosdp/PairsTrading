@@ -1,0 +1,2 @@
+Pair,Total return (%),Sharpe Ratio,Max Drawdown (%),Number of trades,Non-stop loss win rate (%),Mean trade duration/Reversion speed from threshold (mins),Average entry beta,Median MABD (%),Beta series returns MAD (%),Average S1 trade returns (%),Average S2 trade returns (%)
+AXSUSDT_2024_5m ~ MANAUSDT_2024_5m,4.721541339124974,0.015515662667142417,28.06062935897001,116,51.724137931034484,362.7586206896552,16.38951549543068,12.552407649565993,0.2284356419352429,-0.36244898048343505,-0.22951168568972
