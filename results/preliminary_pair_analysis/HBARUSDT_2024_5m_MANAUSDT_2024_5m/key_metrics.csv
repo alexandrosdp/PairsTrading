@@ -1,0 +1,2 @@
+Pair,Total return (%),Annualized Sharpe Ratio,Max Drawdown (%),Number of trades,Non-stop loss win rate (%),Mean trade duration/Reversion speed from threshold (mins),Average entry beta,Median MABD (%),Beta series returns MAD (%),Average S1 trade returns (%),Average S2 trade returns (%)
+HBARUSDT_2024_5m ~ MANAUSDT_2024_5m,-90.64926586205696,-1.7827108161329208,107.91931808391072,103,56.310679611650485,433.93203883495147,0.19965199980242854,27.060667116306455,0.40612372159160026,0.7250816399840813,-0.2720077586857918

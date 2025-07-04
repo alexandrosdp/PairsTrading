@@ -1,0 +1,2 @@
+Pair,Total return (%),Annualized Sharpe Ratio,Max Drawdown (%),Number of trades,Non-stop loss win rate (%),Mean trade duration/Reversion speed from threshold (mins),Average entry beta,Median MABD (%),Beta series returns MAD (%),Average S1 trade returns (%),Average S2 trade returns (%)
+SEIUSDT_2024_5m ~ CRVUSDT_2024_5m,-25.47000810496825,-1.1587796201626448,32.40695368110023,105,57.14285714285714,412.57142857142856,0.9775067502365449,43.2187651456543,0.6789199753732822,0.18493022622873626,-0.06366724235621096

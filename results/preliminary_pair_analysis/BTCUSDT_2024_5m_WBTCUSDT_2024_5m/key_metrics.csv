@@ -1,0 +1,2 @@
+Pair,Total return (%),Annualized Sharpe Ratio,Max Drawdown (%),Number of trades,Non-stop loss win rate (%),Mean trade duration/Reversion speed from threshold (mins),Average entry beta,Median MABD (%),Beta series returns MAD (%),Average S1 trade returns (%),Average S2 trade returns (%)
+BTCUSDT_2024_5m ~ WBTCUSDT_2024_5m,56.34574000591089,24.5924203198005,0.3600102995104197,364,99.45054945054946,35.43956043956044,0.9803212867862258,0.2528790432206465,0.04291228841817318,-0.006167909819762524,-0.03526097875023307

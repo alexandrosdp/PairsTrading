@@ -1,0 +1,2 @@
+Pair,Total return (%),Annualized Sharpe Ratio,Max Drawdown (%),Number of trades,Non-stop loss win rate (%),Mean trade duration/Reversion speed from threshold (mins),Average entry beta,Median MABD (%),Beta series returns MAD (%),Average S1 trade returns (%),Average S2 trade returns (%)
+LTCUSDT_2024_5m ~ MKRUSDT_2024_5m,16.654353479474338,0.8492120817869507,18.960974925479505,125,68.8,410.24,0.009559347577055444,53.179041827713284,0.8237728267839639,0.357522891783952,0.15505772349237795

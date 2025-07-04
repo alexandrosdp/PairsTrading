@@ -1,0 +1,2 @@
+Pair,Total return (%),Annualized Sharpe Ratio,Max Drawdown (%),Number of trades,Non-stop loss win rate (%),Mean trade duration/Reversion speed from threshold (mins),Average entry beta,Median MABD (%),Beta series returns MAD (%),Average S1 trade returns (%),Average S2 trade returns (%)
+NEXOUSDT_2024_5m ~ BTCUSDT_2024_5m,217.66148242728906,11.604481238260906,4.166249263888889,895,63.01675977653631,80.75977653631286,2.1018471691636858e-05,1.6008787725871942,0.44770025223740406,0.022657692170420594,0.03813676019043124

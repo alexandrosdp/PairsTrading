@@ -1,0 +1,2 @@
+Pair,Total return (%),Annualized Sharpe Ratio,Max Drawdown (%),Number of trades,Non-stop loss win rate (%),Mean trade duration/Reversion speed from threshold (mins),Average entry beta,Median MABD (%),Beta series returns MAD (%),Average S1 trade returns (%),Average S2 trade returns (%)
+JTOUSDT_2024_5m ~ NEARUSDT_2024_5m,53.60040161098208,2.2329875871279437,25.684871553230593,109,65.13761467889908,409.44954128440367,0.32587246599703923,49.05742241689976,0.7651492472654287,0.4333986323301644,0.3122963826990669

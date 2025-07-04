@@ -1,0 +1,2 @@
+Pair,Total return (%),Annualized Sharpe Ratio,Max Drawdown (%),Number of trades,Non-stop loss win rate (%),Mean trade duration/Reversion speed from threshold (mins),Average entry beta,Median MABD (%),Beta series returns MAD (%),Average S1 trade returns (%),Average S2 trade returns (%)
+XTZUSDT_2024_5m ~ SANDUSDT_2024_5m,35.89292127534604,3.8415940060556624,11.381011373974113,120,73.33333333333333,386.75,1.5173125285772464,16.98806716935957,0.2936386604497687,0.4264558043506929,0.21710884505976769

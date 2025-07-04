@@ -1,0 +1,2 @@
+Pair,Total return (%),Annualized Sharpe Ratio,Max Drawdown (%),Number of trades,Non-stop loss win rate (%),Mean trade duration/Reversion speed from threshold (mins),Average entry beta,Median MABD (%),Beta series returns MAD (%),Average S1 trade returns (%),Average S2 trade returns (%)
+BCHUSDT_2024_5m ~ MKRUSDT_2024_5m,2.706848176589915,0.09439070771112512,27.492076145336462,123,69.10569105691057,385.609756097561,0.051157644967287474,52.33283553892369,0.8382522513818436,0.11756667201637672,-0.011515336015811443

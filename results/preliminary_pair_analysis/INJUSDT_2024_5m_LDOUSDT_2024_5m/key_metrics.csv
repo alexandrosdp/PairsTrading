@@ -1,0 +1,2 @@
+Pair,Total return (%),Annualized Sharpe Ratio,Max Drawdown (%),Number of trades,Non-stop loss win rate (%),Mean trade duration/Reversion speed from threshold (mins),Average entry beta,Median MABD (%),Beta series returns MAD (%),Average S1 trade returns (%),Average S2 trade returns (%)
+INJUSDT_2024_5m ~ LDOUSDT_2024_5m,4.001676404281705,0.1772644887221053,21.66887713180781,106,51.886792452830186,430.0,5.408609566370093,54.39270682683247,0.7226373893920002,-0.1724773022405667,-0.20906637677486367
