@@ -6,7 +6,7 @@ from back_tester import *
 import itertools
 import pandas as pd
 import numpy as np
-from experiments import *
+from archive.experiments import *
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import os
