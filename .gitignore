@@ -7,4 +7,5 @@ __pycache__/
 #Ignore these python files
 tardis.py
 
-
+#Ignore virutal environment
+.venv
