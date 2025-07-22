@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 import random
 from collections import deque
-from back_tester import * 
+from main.global_functions.back_tester import * 
 import matplotlib.pyplot as plt
 import copy
 
