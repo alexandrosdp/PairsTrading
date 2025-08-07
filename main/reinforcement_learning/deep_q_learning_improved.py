@@ -61,7 +61,7 @@ def simulate_strategy(
 
     # 5) compute the P&L of that one trade (for logging only)
     #    simulate_strategy_trade_pnl expects lists of entries/exits:
-    pnl_list, _, _, _, _, _ = simulate_strategy_trade_pnl(
+    pnl_list,_, _, _, _, _, _ = simulate_strategy_trade_pnl(
         [entry_meta], [exit_meta],
         initial_capital, beta_series_trading_window, tx_cost
     )
@@ -574,7 +574,7 @@ def train_dqn(spreads_train: pd.Series,
                     next_q_values = target_net(next_states_v)
                     max_next_q_values = next_q_values.max(1)[0] #computes the maximum Q-value across all possible actions for each next state. This represents the best possible future reward.
                     expected_values = rewards_v + gamma * max_next_q_values * (~dones_v) #~dones_v: Ensures that no future rewards are added if the episode has ended (done = True)
-
+                 
 
                 # compute loss and update network
                 td_loss = nn.HuberLoss()(state_action_values, expected_values) # Mean Squared Error loss between the predicted Q-values and the expected Q-values.
